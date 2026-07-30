@@ -6,7 +6,7 @@
 
 local event = require("event")
 local unicode = require("unicode")
-
+local computer = require("computer")
 local renderer = require("ui.renderer")
 local theme = require("ui.theme")
 
