@@ -8,12 +8,14 @@ local renderer = require("ui.renderer")
 
 local cards = {}
 
+
 --------------------------------------------------
 -- Размер карты
 --------------------------------------------------
 
 cards.width = 11
 cards.height = 9
+
 
 
 --------------------------------------------------
@@ -35,6 +37,7 @@ cards.colors = {
 }
 
 
+
 --------------------------------------------------
 -- Символ масти
 --------------------------------------------------
@@ -52,11 +55,13 @@ local suitSymbol = {
 }
 
 
+
 --------------------------------------------------
 -- Цвет значения
 --------------------------------------------------
 
 function cards.valueColor(suit)
+
 
     if suit == "hearts"
     or suit == "diamonds" then
@@ -65,39 +70,99 @@ function cards.valueColor(suit)
 
     end
 
+
     return cards.colors.textBlack
 
+
 end
+
+
+
+--------------------------------------------------
+-- Текст внутри карты
+--------------------------------------------------
+
+function cards.centerInCard(
+    x,
+    y,
+    text,
+    color
+)
+
+
+    text =
+        tostring(text or "")
+
+
+    local unicode =
+        require("unicode")
+
+
+    local width =
+        unicode.len(text)
+
+
+
+    renderer.text(
+
+        x +
+        math.floor(
+            (cards.width - width) / 2
+        ),
+
+        y,
+
+        text,
+
+        color
+
+    )
+
+
+end
+
 
 
 --------------------------------------------------
 -- Основа карты
 --------------------------------------------------
 
-function cards.base(x, y)
+function cards.base(x,y)
+
 
     renderer.panel(
 
         x,
+
         y,
+
         cards.width,
+
         cards.height,
+
         cards.colors.background
 
     )
 
 
+
     renderer.border(
 
         x,
+
         y,
+
         cards.width,
+
         cards.height,
+
         cards.colors.border
 
     )
 
+
 end
+
 
 
 --------------------------------------------------
@@ -106,12 +171,17 @@ end
 
 function cards.back(x,y)
 
+
     renderer.panel(
 
         x,
+
         y,
+
         cards.width,
+
         cards.height,
+
         cards.colors.back
 
     )
@@ -120,28 +190,58 @@ function cards.back(x,y)
     renderer.border(
 
         x,
+
         y,
+
         cards.width,
+
         cards.height,
+
         0xFFD700
 
     )
 
+
+    cards.centerInCard(
+
+        x,
+
+        y + 4,
+
+        "?",
+
+        0xFFD700
+
+    )
+
+
 end
+
 
 
 --------------------------------------------------
 -- Открытая карта
 --------------------------------------------------
 
-function cards.draw(x,y,value,suit)
+function cards.draw(
+    x,
+    y,
+    value,
+    suit
+)
 
 
     cards.base(x,y)
 
 
+
     local color =
         cards.valueColor(suit)
+
+
+
+    local symbol =
+        suitSymbol[suit] or "?"
 
 
 
@@ -165,7 +265,7 @@ function cards.draw(x,y,value,suit)
 
         y + 2,
 
-        suitSymbol[suit] or "?",
+        symbol,
 
         color
 
@@ -176,9 +276,11 @@ function cards.draw(x,y,value,suit)
     if face.figure[value] then
 
 
-        renderer.center(
+        cards.centerInCard(
 
-            y + 5,
+            x,
+
+            y + 4,
 
             face.figure[value],
 
@@ -190,11 +292,13 @@ function cards.draw(x,y,value,suit)
     else
 
 
-        renderer.center(
+        cards.centerInCard(
 
-            y + 5,
+            x,
 
-            suitSymbol[suit] or "?",
+            y + 4,
+
+            symbol,
 
             color
 
@@ -207,9 +311,9 @@ function cards.draw(x,y,value,suit)
 
     renderer.text(
 
-        x + 8,
+        x + cards.width - 2,
 
-        y + 7,
+        y + cards.height - 2,
 
         tostring(value),
 
@@ -221,17 +325,22 @@ function cards.draw(x,y,value,suit)
 end
 
 
+
 --------------------------------------------------
 -- Рука игрока
 --------------------------------------------------
 
-function cards.drawHand(hand,x,y)
+function cards.drawHand(
+    hand,
+    x,
+    y
+)
 
 
     local offset = 0
 
 
-    for _,card in ipairs(hand) do
+    for _,card in ipairs(hand or {}) do
 
 
         cards.draw(
@@ -248,28 +357,38 @@ function cards.drawHand(hand,x,y)
 
 
         offset =
-            offset + cards.width + 1
+            offset +
+            cards.width +
+            1
 
 
     end
 
+
 end
+
 
 
 --------------------------------------------------
 -- Карты дилера
 --------------------------------------------------
 
-function cards.drawDealer(hand,x,y,hideFirst)
+function cards.drawDealer(
+    hand,
+    x,
+    y,
+    hideFirst
+)
 
 
     local offset = 0
 
 
-    for i,card in ipairs(hand) do
+    for i,card in ipairs(hand or {}) do
 
 
-        if i == 1 and hideFirst then
+        if i == 1
+        and hideFirst then
 
 
             cards.back(
@@ -300,13 +419,18 @@ function cards.drawDealer(hand,x,y,hideFirst)
         end
 
 
+
         offset =
-            offset + cards.width + 1
+            offset +
+            cards.width +
+            1
 
 
     end
 
+
 end
+
 
 
 --------------------------------------------------
