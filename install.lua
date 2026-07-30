@@ -11,60 +11,44 @@ local repo =
 
 local files = {
 
-    -- core
-    "main.lua",
-    "config.lua",
-    "blackjack.lua",
-    "manifest.lua",
-    "version.txt",
+"main.lua",
+"config.lua",
+"blackjack.lua",
 
+"game/cards.lua",
+"game/deck.lua",
+"game/player.lua",
+"game/dealer.lua",
+"game/game.lua",
+"game/controller.lua",
+"game/rules.lua",
 
-    -- game
-    "game/cards.lua",
-    "game/deck.lua",
-    "game/player.lua",
-    "game/dealer.lua",
-    "game/game.lua",
-    "game/controller.lua",
-    "game/rules.lua",
-    "game/payout.lua",
+"ui/gui.lua",
+"ui/widgets.lua",
+"ui/renderer.lua",
+"ui/card_renderer.lua",
+"ui/card_faces.lua",
+"ui/pixel.lua",
+"ui/animation.lua",
+"ui/sprites.lua",
+"ui/table.lua",
+"ui/theme.lua",
+"ui/control_panel.lua",
 
+"lib/storage.lua",
+"lib/logger.lua",
+"lib/util.lua",
 
-    -- ui
-    "ui/gui.lua",
-    "ui/widgets.lua",
-    "ui/renderer.lua",
-    "ui/card_renderer.lua",
-    "ui/card_faces.lua",
-    "ui/control_panel.lua",
-    "ui/animation.lua",
-    "ui/pixel.lua",
+"admin/admin.lua",
 
+"bank/economy.lua",
 
-    -- lib
-    "lib/storage.lua",
-    "lib/logger.lua",
-    "lib/util.lua",
+"hardware/me_network.lua",
+"hardware/transposer.lua",
 
-
-    -- admin
-    "admin/admin.lua",
-
-
-    -- bank
-    "bank/economy.lua",
-
-
-    -- hardware
-    "hardware/me_network.lua",
-    "hardware/transposer.lua",
-
-
-    -- system
-    "system/init.lua"
+"system/init.lua"
 
 }
-
 
 
 local root = "/BlackJack/"
