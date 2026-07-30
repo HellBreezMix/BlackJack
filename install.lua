@@ -1,17 +1,18 @@
 --------------------------------------------------
--- BlackJack
--- install.lua
+-- BlackJack Installer
 --------------------------------------------------
 
 local shell = require("shell")
 local filesystem = require("filesystem")
 
---------------------------------------------------
--- Репозиторий
---------------------------------------------------
 
 local repo =
-    "https://raw.githubusercontent.com/HellBreezMix/BlackJack/main/"
+"https://raw.githubusercontent.com/HellBreezMix/BlackJack/main/"
+
+
+local target =
+"/BlackJack/"
+
 
 --------------------------------------------------
 -- Файлы
@@ -19,46 +20,44 @@ local repo =
 
 local files = {
 
-    "blackjack.lua",
+"main.lua",
+"config.lua",
+"blackjack.lua",
 
-    "main.lua",
-    "config.lua",
-    "manifest.lua",
+"game/cards.lua",
+"game/deck.lua",
+"game/player.lua",
+"game/dealer.lua",
+"game/game.lua",
+"game/controller.lua",
+"game/rules.lua",
+"game/payout.lua",
 
-    "game/cards.lua",
-    "game/deck.lua",
-    "game/player.lua",
-    "game/dealer.lua",
-    "game/game.lua",
-    "game/controller.lua",
-    "game/rules.lua",
-    "game/payout.lua",
+"ui/gui.lua",
+"ui/widgets.lua",
+"ui/renderer.lua",
+"ui/card_renderer.lua",
+"ui/card_faces.lua",
+"ui/pixel.lua",
 
-    "ui/gui.lua",
-    "ui/widgets.lua",
-    "ui/renderer.lua",
-    "ui/card_renderer.lua",
-    "ui/card_faces.lua",
-    "ui/pixel.lua",
-    "ui/sprites.lua",
-    "ui/theme.lua",
+"lib/storage.lua",
+"lib/logger.lua",
+"lib/util.lua",
 
-    "lib/storage.lua",
-    "lib/logger.lua",
-    "lib/util.lua",
+"admin/admin.lua",
 
-    "admin/admin.lua",
+"bank/bank.lua",
 
-    "hardware/chest.lua",
-    "hardware/me.lua",
+"hardware/chest.lua",
+"hardware/me.lua",
 
-    "system/init.lua"
+"system/init.lua"
 
 }
 
 
 --------------------------------------------------
--- Создать папку
+-- Создание папок
 --------------------------------------------------
 
 local function makeDir(path)
@@ -66,10 +65,7 @@ local function makeDir(path)
     local dir =
         filesystem.path(path)
 
-    if dir
-    and dir ~= ""
-    and not filesystem.exists(dir)
-    then
+    if dir and not filesystem.exists(dir) then
 
         filesystem.makeDirectory(dir)
 
@@ -83,49 +79,61 @@ end
 -- Скачать файл
 --------------------------------------------------
 
-local function download(path)
+local function download(file)
 
-    print("Downloading "..path)
+    local url =
+        repo .. file
+
+
+    local path =
+        target .. file
+
 
     makeDir(path)
 
 
-    local url =
-        repo .. path
-
-
-    local command =
-        "wget -f " ..
-        url ..
-        " " ..
-        path
+    print(
+        "Downloading " .. file
+    )
 
 
     local result =
-        shell.execute(command)
+        shell.execute(
+            "wget -f " ..
+            url ..
+            " " ..
+            path
+        )
 
 
     if not result then
 
         print(
-            "FAILED: "..path
+            "FAILED: " .. file
         )
 
     end
+
 
 end
 
 
 
 --------------------------------------------------
--- Установка
+-- Старт
 --------------------------------------------------
 
-print("")
-print("======================")
-print(" BlackJack Installer ")
-print("======================")
-print("")
+print(
+"Installing BlackJack..."
+)
+
+
+if not filesystem.exists(target) then
+
+    filesystem.makeDirectory(target)
+
+end
+
 
 
 for _, file in ipairs(files) do
@@ -135,30 +143,38 @@ for _, file in ipairs(files) do
 end
 
 
-print("")
-print("BlackJack installed!")
-print("")
-
 
 --------------------------------------------------
--- Запуск
+-- Запускатель
 --------------------------------------------------
 
-if filesystem.exists(
-    "/home/blackjack.lua"
+local launcher =
+[[
+#!/bin/sh
+lua /BlackJack/main.lua
+]]
+
+
+local f =
+io.open(
+    "/BlackJack/start",
+    "w"
 )
-then
 
-    print("Starting...")
+if f then
 
-    shell.execute(
-        "lua /home/blackjack.lua"
-    )
+    f:write(launcher)
 
-else
-
-    print(
-        "Launcher not found"
-    )
+    f:close()
 
 end
+
+
+
+print("")
+print("====================")
+print("BlackJack installed")
+print("")
+print("Run:")
+print("lua /BlackJack/main.lua")
+print("====================")
