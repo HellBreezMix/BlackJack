@@ -2,6 +2,8 @@
 -- BlackJack
 -- main.lua
 --------------------------------------------------
+package.path = package.path .. ";/BlackJack/?.lua;/BlackJack/?/init.lua"
+
 package.path =
     "/BlackJack/?.lua;" ..
     "/BlackJack/?/init.lua;" ..
