@@ -29,6 +29,7 @@ local gpu =
     renderer.gpu
 
 
+
 --------------------------------------------------
 -- Размер экрана
 --------------------------------------------------
@@ -38,6 +39,7 @@ function renderer.getResolution()
     return gpu.getResolution()
 
 end
+
 
 
 --------------------------------------------------
@@ -53,11 +55,13 @@ function renderer.resetColor()
 end
 
 
+
 --------------------------------------------------
 -- Очистка
 --------------------------------------------------
 
 function renderer.clear(color)
+
 
     local w, h =
         gpu.getResolution()
@@ -84,7 +88,9 @@ function renderer.clear(color)
 
     )
 
+
 end
+
 
 
 --------------------------------------------------
@@ -120,12 +126,13 @@ function renderer.text(
 
         y,
 
-        tostring(text)
+        tostring(text or "")
 
     )
 
 
 end
+
 
 
 --------------------------------------------------
@@ -144,16 +151,21 @@ function renderer.center(
         gpu.getResolution()
 
 
+    text =
+        tostring(text or "")
+
+
     local len =
-        unicode.len(
-            tostring(text)
-        )
+        unicode.len(text)
 
 
     local x =
         math.floor(
+
             (width - len) / 2
+
         ) + 1
+
 
 
     renderer.text(
@@ -170,7 +182,9 @@ function renderer.center(
 
     )
 
+
 end
+
 
 
 --------------------------------------------------
@@ -186,7 +200,11 @@ function renderer.panel(
 )
 
 
-    gpu.setBackground(color)
+    gpu.setBackground(
+
+        color or 0x202020
+
+    )
 
 
     gpu.fill(
@@ -203,7 +221,9 @@ function renderer.panel(
 
     )
 
+
 end
+
 
 
 --------------------------------------------------
@@ -216,6 +236,7 @@ function renderer.hLine(
     width,
     color
 )
+
 
     gpu.setForeground(
 
@@ -234,7 +255,9 @@ function renderer.hLine(
 
     )
 
+
 end
+
 
 
 --------------------------------------------------
@@ -258,6 +281,7 @@ function renderer.vLine(
 
     for i = 0, height - 1 do
 
+
         gpu.set(
 
             x,
@@ -268,9 +292,12 @@ function renderer.vLine(
 
         )
 
+
     end
 
+
 end
+
 
 
 --------------------------------------------------
@@ -345,6 +372,7 @@ function renderer.border(
     )
 
 
+
     gpu.set(x, y, "┌")
 
     gpu.set(
@@ -353,11 +381,13 @@ function renderer.border(
         "┐"
     )
 
+
     gpu.set(
         x,
         y + height - 1,
         "└"
     )
+
 
     gpu.set(
         x + width - 1,
@@ -365,7 +395,9 @@ function renderer.border(
         "┘"
     )
 
+
 end
+
 
 
 --------------------------------------------------
@@ -379,6 +411,11 @@ function renderer.button(
     height,
     text
 )
+
+
+    text =
+        tostring(text or "")
+
 
 
     renderer.panel(
@@ -396,6 +433,7 @@ function renderer.button(
     )
 
 
+
     renderer.border(
 
         x,
@@ -411,29 +449,30 @@ function renderer.button(
     )
 
 
+
+    local textWidth =
+        unicode.len(text)
+
+
+
     local tx =
-
         x +
-
         math.floor(
 
-            (width -
-            unicode.len(text))
-
-            / 2
+            (width - textWidth) / 2
 
         )
+
 
 
     local ty =
-
         y +
-
         math.floor(
 
-            height / 2
+            (height + 1) / 2
 
         )
+
 
 
     renderer.text(
@@ -449,7 +488,11 @@ function renderer.button(
     )
 
 
+    renderer.resetColor()
+
+
 end
+
 
 
 --------------------------------------------------
@@ -468,12 +511,19 @@ function renderer.progress(
 
     percent =
         math.max(
+
             0,
+
             math.min(
+
                 100,
-                percent
+
+                percent or 0
+
             )
+
         )
+
 
 
     renderer.panel(
@@ -491,6 +541,7 @@ function renderer.progress(
     )
 
 
+
     local filled =
 
         math.floor(
@@ -504,7 +555,9 @@ function renderer.progress(
         )
 
 
+
     if filled > 0 then
+
 
         renderer.panel(
 
@@ -520,10 +573,15 @@ function renderer.progress(
 
         )
 
+
     end
 
 
+    renderer.resetColor()
+
+
 end
+
 
 
 --------------------------------------------------
