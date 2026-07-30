@@ -1,7 +1,7 @@
 --------------------------------------------------
 -- BlackJack
 -- ui/gui.lua
--- russian casino interface
+-- russian interface
 --------------------------------------------------
 
 local event = require("event")
@@ -12,8 +12,6 @@ local theme = require("ui.theme")
 
 local controller = require("game.controller")
 local cardRenderer = require("ui.card_renderer")
-
-local lang = require("lang.ru")
 
 
 local gui = {}
@@ -28,14 +26,45 @@ gui.screen = "menu"
 
 gui.buttons = {}
 
-gui.playerName = "Guest"
+gui.playerName = "Гость"
 
 gui.authorized = false
 
 
-gui.timeout = 60
+--------------------------------------------------
+-- SESSION TIMER
+--------------------------------------------------
 
-gui.timer = nil
+gui.sessionTimer = nil
+
+gui.sessionTime = 60
+
+
+
+function gui.resetTimer()
+
+    if gui.sessionTimer then
+
+        event.cancel(gui.sessionTimer)
+
+    end
+
+
+    gui.sessionTimer =
+        event.timer(
+            gui.sessionTime,
+            function()
+
+                gui.authorized = false
+                gui.playerName = "Гость"
+                gui.screen = "menu"
+
+                gui.draw()
+
+            end
+        )
+
+end
 
 
 
@@ -43,54 +72,15 @@ gui.timer = nil
 -- TOP PLAYERS
 --------------------------------------------------
 
--- позже подключим серверную статистику
+-- позже подключим базу игроков
 
 gui.topPlayers = {}
 
 
 
---------------------------------------------------
--- SESSION TIMER
---------------------------------------------------
-
-function gui.resetTimer()
-
-
-    if gui.timer then
-
-        event.cancel(gui.timer)
-
-    end
-
-
-
-    gui.timer = event.timer(
-
-        gui.timeout,
-
-        function()
-
-
-            gui.authorized = false
-
-            gui.playerName = "Guest"
-
-            gui.screen = "menu"
-
-            gui.draw()
-
-
-        end
-
-    )
-
-
-end
-
-
 
 --------------------------------------------------
--- BUTTON SYSTEM
+-- BUTTONS
 --------------------------------------------------
 
 function gui.clearButtons()
@@ -98,7 +88,6 @@ function gui.clearButtons()
     gui.buttons = {}
 
 end
-
 
 
 
@@ -113,27 +102,16 @@ function gui.addButton(
 
 
     table.insert(
-
         gui.buttons,
-
         {
-
             x=x,
-
             y=y,
-
             w=w,
-
             h=h,
-
             text=text,
-
             callback=callback
-
         }
-
     )
-
 
 end
 
@@ -147,52 +125,39 @@ function gui.drawButtons()
 
 
         renderer.panel(
-
             b.x,
-
             b.y,
-
             b.w,
-
             b.h,
-
             0x303030
-
         )
 
 
         renderer.border(
-
             b.x,
-
             b.y,
-
             b.w,
-
             b.h,
-
             theme.colors.gold
-
         )
 
 
+        local tx =
+            b.x +
+            math.floor(
+                (
+                    b.w -
+                    unicode.len(b.text)
+                )
+                /2
+            )
+
 
         renderer.text(
-
-            b.x +
-
-            math.floor(
-                (b.w -
-                unicode.len(b.text))
-                /2
-            ),
-
+            tx,
             b.y+1,
-
             b.text,
-
             theme.colors.text
-
         )
 
 
@@ -203,6 +168,7 @@ end
 
 
 
+
 function gui.checkButtons(x,y)
 
 
@@ -210,15 +176,13 @@ function gui.checkButtons(x,y)
 
 
         if
-
             x >= b.x
-
             and x <= b.x+b.w
 
-            and y >= b.y
+            and
 
+            y >= b.y
             and y <= b.y+b.h
-
 
         then
 
@@ -240,7 +204,6 @@ function gui.checkButtons(x,y)
 
     return false
 
-
 end
 --------------------------------------------------
 -- SIDE PANEL
@@ -249,48 +212,39 @@ end
 function gui.drawSidePanel()
 
 
-    local width = renderer.getResolution()
+    local width =
+        renderer.getResolution()
 
-    local x = width - 28
+
+    local x =
+        width - 28
 
 
 
     renderer.panel(
-
         x,
         1,
-
         26,
         35,
-
         0x101010
-
     )
 
 
 
     renderer.border(
-
         x,
         1,
-
         26,
         35,
-
         theme.colors.gold
-
     )
 
 
 
     renderer.center(
-
         3,
-
-        lang.AUTHORIZATION,
-
+        "АВТОРИЗАЦИЯ",
         theme.colors.gold
-
     )
 
 
@@ -298,41 +252,47 @@ function gui.drawSidePanel()
     if gui.authorized then
 
 
-        renderer.text(
 
+        renderer.text(
             x+2,
             5,
-
-            lang.PLAYER,
-
+            "ИГРОК:",
             theme.colors.text
-
         )
 
 
         renderer.text(
-
             x+10,
             5,
-
             gui.playerName,
-
             theme.colors.gold
-
         )
+
+
+        renderer.text(
+            x+2,
+            7,
+            "СЕССИЯ:",
+            theme.colors.text
+        )
+
+
+        renderer.text(
+            x+11,
+            7,
+            "60",
+            theme.colors.gold
+        )
+
 
 
     else
 
 
         renderer.center(
-
             5,
-
-            lang.NO_LOGIN,
-
+            "НЕТ ВХОДА",
             theme.colors.text
-
         )
 
 
@@ -342,18 +302,10 @@ function gui.drawSidePanel()
 
 
     renderer.center(
-
-        9,
-
-        lang.TOP_PLAYERS,
-
+        10,
+        "ТОП 15 ИГРОКОВ",
         theme.colors.gold
-
     )
-
-
-
-    local y = 11
 
 
 
@@ -361,18 +313,16 @@ function gui.drawSidePanel()
 
 
         renderer.center(
-
-            y,
-
-            lang.NO_DATA,
-
+            12,
+            "НЕТ ДАННЫХ",
             theme.colors.text
-
         )
 
 
     else
 
+
+        local y = 12
 
 
         for i,p in ipairs(gui.topPlayers) do
@@ -387,31 +337,20 @@ function gui.drawSidePanel()
 
 
             renderer.text(
-
                 x+2,
-
                 y,
-
                 i.."."..p.name,
-
                 theme.colors.text
-
             )
 
 
 
             renderer.text(
-
                 x+17,
-
                 y,
-
                 tostring(p.money),
-
                 theme.colors.gold
-
             )
-
 
 
             y=y+1
@@ -424,7 +363,6 @@ function gui.drawSidePanel()
 
 
 end
-
 
 
 
@@ -444,28 +382,22 @@ function gui.drawMenu()
 
 
     renderer.center(
-
         2,
-
         "BLACKJACK",
-
         theme.colors.gold
-
     )
 
 
 
     gui.addButton(
-
+        10,
         8,
-        8,
-        18,
+        20,
         3,
-
-        lang.PLAY,
-
+        "ИГРАТЬ",
 
         function()
+
 
 
             if not gui.authorized then
@@ -477,16 +409,11 @@ function gui.drawMenu()
 
 
             controller.start(
-
                 gui.playerName
-
             )
 
 
             gui.screen="game"
-
-
-            gui.resetTimer()
 
 
             gui.draw()
@@ -501,10 +428,15 @@ function gui.drawMenu()
 
     gui.drawButtons()
 
+
     gui.drawSidePanel()
 
 
 end
+
+
+
+
 --------------------------------------------------
 -- GAME
 --------------------------------------------------
@@ -514,120 +446,93 @@ function gui.drawGame()
 
     renderer.clear()
 
+
     gui.clearButtons()
 
 
 
     renderer.center(
-
         2,
-
         "BLACKJACK",
-
         theme.colors.gold
-
     )
 
 
 
     renderer.text(
-
         3,
         4,
-
-        lang.DEALER,
-
+        "ДИЛЕР:",
         theme.colors.text
-
     )
 
 
 
     renderer.text(
-
         12,
         4,
-
         tostring(
             controller.dealerPoints()
         ),
-
         theme.colors.gold
-
     )
 
 
 
     cardRenderer.drawDealer(
-
         controller.dealerCards(),
-
         3,
         6,
-
         not controller.finished()
-
     )
 
 
 
 
     renderer.text(
-
         3,
         16,
-
-        lang.PLAYER,
-
+        "ИГРОК:",
         theme.colors.text
-
     )
 
 
-
     renderer.text(
-
         12,
         16,
-
         tostring(
             controller.playerPoints()
         ),
-
         theme.colors.gold
-
     )
 
 
 
     cardRenderer.drawHand(
-
         controller.playerCards(),
-
         3,
         18
-
     )
-
-
-
-
+--------------------------------------------------
+-- GAME CONTINUE
+--------------------------------------------------
 
     if controller.finished() then
-
 
 
         renderer.center(
 
             26,
 
-            lang.RESULT ..
-            controller.result(),
+            "РЕЗУЛЬТАТ: "
+            ..
+            tostring(
+                controller.result()
+            ),
 
             theme.colors.gold
 
         )
-
 
 
 
@@ -639,7 +544,7 @@ function gui.drawGame()
             14,
             3,
 
-            lang.NEW_GAME,
+            "НОВАЯ ИГРА",
 
 
             function()
@@ -652,13 +557,10 @@ function gui.drawGame()
                 )
 
 
-                gui.resetTimer()
-
                 gui.draw()
 
 
             end
-
 
         )
 
@@ -673,24 +575,21 @@ function gui.drawGame()
             14,
             3,
 
-            lang.MENU,
+            "МЕНЮ",
 
 
             function()
 
 
-                gui.screen="menu"
+                gui.screen = "menu"
 
-                gui.resetTimer()
 
                 gui.draw()
 
 
             end
 
-
         )
-
 
 
 
@@ -706,7 +605,7 @@ function gui.drawGame()
             12,
             3,
 
-            lang.HIT,
+            "ВЗЯТЬ",
 
 
             function()
@@ -714,13 +613,11 @@ function gui.drawGame()
 
                 controller.hit()
 
-                gui.resetTimer()
 
                 gui.draw()
 
 
             end
-
 
         )
 
@@ -735,7 +632,7 @@ function gui.drawGame()
             12,
             3,
 
-            lang.STAND,
+            "СТОП",
 
 
             function()
@@ -743,20 +640,17 @@ function gui.drawGame()
 
                 controller.stand()
 
-                gui.resetTimer()
 
                 gui.draw()
 
 
             end
 
-
         )
 
 
 
     end
-
 
 
 
@@ -772,7 +666,6 @@ end
 
 
 
-
 --------------------------------------------------
 -- DRAW
 --------------------------------------------------
@@ -780,13 +673,13 @@ end
 function gui.draw()
 
 
-    if gui.screen=="menu" then
+    if gui.screen == "menu" then
 
 
         gui.drawMenu()
 
 
-    elseif gui.screen=="game" then
+    elseif gui.screen == "game" then
 
 
         gui.drawGame()
@@ -813,17 +706,22 @@ function gui.touch(
 
 
 
+    -- любое касание обновляет сессию
+
     gui.resetTimer()
 
 
+
+    -- первая авторизация
 
     if not gui.authorized
     and player then
 
 
-        gui.authorized=true
+        gui.authorized = true
 
-        gui.playerName=player
+
+        gui.playerName = player
 
 
         gui.draw()
@@ -845,9 +743,7 @@ function gui.touch(
     )
 
 
-
 end
-
 
 
 
@@ -868,14 +764,19 @@ function gui.start()
 
 
 
-        local e,_,x,y,button,player =
+        local _,_,
+        x,
+        y,
+        button,
+        player =
 
-            event.pull()
+            event.pull(
+                "touch"
+            )
 
 
 
-        if e=="touch" then
-
+        if x and y then
 
 
             gui.touch(
@@ -903,4 +804,4 @@ end
 
 
 
-return gui
+return gui    
