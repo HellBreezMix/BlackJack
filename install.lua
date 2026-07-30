@@ -19,6 +19,7 @@ local root =
     "/BlackJack/"
 
 
+
 --------------------------------------------------
 -- Файлы проекта
 --------------------------------------------------
@@ -26,14 +27,35 @@ local root =
 local files = {
 
 
+    --------------------------------------------------
     -- ядро
+    --------------------------------------------------
 
     "main.lua",
     "config.lua",
     "manifest.lua",
 
 
+
+    --------------------------------------------------
+    -- язык
+    --------------------------------------------------
+
+    "lang/ru.lua",
+
+
+
+    --------------------------------------------------
+    -- данные
+    --------------------------------------------------
+
+    "data/players.lua",
+
+
+
+    --------------------------------------------------
     -- игра
+    --------------------------------------------------
 
     "game/cards.lua",
     "game/deck.lua",
@@ -45,7 +67,10 @@ local files = {
     "game/payout.lua",
 
 
+
+    --------------------------------------------------
     -- интерфейс
+    --------------------------------------------------
 
     "ui/gui.lua",
     "ui/widgets.lua",
@@ -59,34 +84,50 @@ local files = {
     "ui/sprites.lua",
 
 
+
+    --------------------------------------------------
     -- библиотеки
+    --------------------------------------------------
 
     "lib/storage.lua",
     "lib/logger.lua",
     "lib/util.lua",
 
 
+
+    --------------------------------------------------
     -- админ
+    --------------------------------------------------
 
     "admin/admin.lua",
 
 
+
+    --------------------------------------------------
     -- банк
+    --------------------------------------------------
 
     "bank/economy.lua",
 
 
+
+    --------------------------------------------------
     -- железо
+    --------------------------------------------------
 
     "hardware/me_network.lua",
     "hardware/transposer.lua",
 
 
+
+    --------------------------------------------------
     -- система
+    --------------------------------------------------
 
     "system/init.lua"
 
 }
+
 
 
 
@@ -96,19 +137,28 @@ local files = {
 
 local function makePath(file)
 
+
     local dir =
         file:match("(.+)/[^/]+$")
 
 
+
     if dir then
 
+
         filesystem.makeDirectory(
+
             root .. dir
+
         )
+
 
     end
 
+
 end
+
+
 
 
 
@@ -122,8 +172,10 @@ local function download(file)
     makePath(file)
 
 
+
     local url =
         repo .. file
+
 
 
     local path =
@@ -132,18 +184,28 @@ local function download(file)
 
 
     print(
+
         "[DOWNLOAD] " .. file
+
     )
 
 
 
+    local command =
+
+        "wget -f \"" ..
+        url ..
+        "\" \"" ..
+        path ..
+        "\""
+
+
+
     local result =
+
         shell.execute(
 
-            "wget -f " ..
-            url ..
-            " " ..
-            path
+            command
 
         )
 
@@ -151,14 +213,31 @@ local function download(file)
 
     if not result then
 
+
         print(
+
             "[FAILED] " .. file
+
         )
+
+
+    else
+
+
+        print(
+
+            "Saved: " .. path
+
+        )
+
 
     end
 
 
 end
+
+
+
 
 
 
@@ -175,16 +254,21 @@ print("")
 
 
 filesystem.makeDirectory(
+
     root
+
 )
 
 
 
 for _, file in ipairs(files) do
 
+
     download(file)
 
+
 end
+
 
 
 
@@ -194,9 +278,11 @@ print(" Installation done ")
 print("======================")
 print("")
 
+
 print(
     "Run:"
 )
+
 
 print(
     "lua /BlackJack/main.lua"
