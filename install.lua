@@ -1,110 +1,157 @@
 --------------------------------------------------
--- BlackJack Installer
+-- BlackJack
+-- install.lua
 --------------------------------------------------
 
 local shell = require("shell")
 local filesystem = require("filesystem")
 
+
+--------------------------------------------------
+-- Настройки
+--------------------------------------------------
+
 local repo =
     "https://raw.githubusercontent.com/HellBreezMix/BlackJack/main/"
 
 
+local root =
+    "/BlackJack/"
+
+
+--------------------------------------------------
+-- Файлы проекта
+--------------------------------------------------
+
 local files = {
 
-"main.lua",
-"config.lua",
-"blackjack.lua",
 
-"game/cards.lua",
-"game/deck.lua",
-"game/player.lua",
-"game/dealer.lua",
-"game/game.lua",
-"game/controller.lua",
-"game/rules.lua",
+    -- ядро
 
-"ui/gui.lua",
-"ui/widgets.lua",
-"ui/renderer.lua",
-"ui/card_renderer.lua",
-"ui/card_faces.lua",
-"ui/pixel.lua",
-"ui/animation.lua",
-"ui/sprites.lua",
-"ui/table.lua",
-"ui/theme.lua",
-"ui/control_panel.lua",
+    "main.lua",
+    "config.lua",
+    "manifest.lua",
 
-"lib/storage.lua",
-"lib/logger.lua",
-"lib/util.lua",
 
-"admin/admin.lua",
+    -- игра
 
-"bank/economy.lua",
+    "game/cards.lua",
+    "game/deck.lua",
+    "game/player.lua",
+    "game/dealer.lua",
+    "game/game.lua",
+    "game/controller.lua",
+    "game/rules.lua",
 
-"hardware/me_network.lua",
-"hardware/transposer.lua",
 
-"system/init.lua"
+    -- интерфейс
+
+    "ui/gui.lua",
+    "ui/widgets.lua",
+    "ui/renderer.lua",
+    "ui/theme.lua",
+    "ui/control_panel.lua",
+    "ui/table.lua",
+    "ui/card_renderer.lua",
+    "ui/card_faces.lua",
+    "ui/pixel.lua",
+    "ui/sprites.lua",
+
+
+    -- библиотеки
+
+    "lib/storage.lua",
+    "lib/logger.lua",
+    "lib/util.lua",
+
+
+    -- админ
+
+    "admin/admin.lua",
+
+
+    -- банк
+
+    "bank/economy.lua",
+
+
+    -- железо
+
+    "hardware/me_network.lua",
+    "hardware/transposer.lua",
+
+
+    -- система
+
+    "system/init.lua"
 
 }
 
 
-local root = "/BlackJack/"
+
+--------------------------------------------------
+-- Создание папок
+--------------------------------------------------
+
+local function makePath(file)
+
+    local dir =
+        file:match("(.+)/[^/]+$")
 
 
-print("====================")
-print("BlackJack installer")
-print("====================")
+    if dir then
 
+        filesystem.makeDirectory(
+            root .. dir
+        )
 
-if not filesystem.exists(root) then
-    filesystem.makeDirectory(root)
+    end
+
 end
 
 
 
-for _, file in ipairs(files) do
+--------------------------------------------------
+-- Загрузка файла
+--------------------------------------------------
+
+local function download(file)
 
 
-    local path =
-        root .. file
-
-
-    local dir =
-        filesystem.path(path)
-
-
-    if not filesystem.exists(dir) then
-
-        filesystem.makeDirectory(dir)
-
-    end
-
-
-
-    print("Downloading " .. file)
+    makePath(file)
 
 
     local url =
         repo .. file
 
 
+    local path =
+        root .. file
+
+
+
+    print(
+        "[DOWNLOAD] " .. file
+    )
+
+
 
     local result =
         shell.execute(
+
             "wget -f " ..
             url ..
             " " ..
             path
+
         )
+
 
 
     if not result then
 
         print(
-            "FAILED: " .. file
+            "[FAILED] " .. file
         )
 
     end
@@ -114,9 +161,37 @@ end
 
 
 
-print("====================")
-print("BlackJack installed")
-print("====================")
+--------------------------------------------------
+-- Установка
+--------------------------------------------------
+
+print("")
+print("======================")
+print(" BlackJack Installer ")
+print("======================")
+print("")
+
+
+
+filesystem.makeDirectory(
+    root
+)
+
+
+
+for _, file in ipairs(files) do
+
+    download(file)
+
+end
+
+
+
+print("")
+print("======================")
+print(" Installation done ")
+print("======================")
+print("")
 
 print(
     "Run:"
