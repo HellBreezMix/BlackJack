@@ -21,14 +21,14 @@ local gui = {}
 
 
 --------------------------------------------------
--- Игрок
+-- Player
 --------------------------------------------------
 
 gui.playerName = "Player"
 
 
 --------------------------------------------------
--- Экран
+-- State
 --------------------------------------------------
 
 gui.screen = "menu"
@@ -36,8 +36,9 @@ gui.screen = "menu"
 gui.buttons = {}
 
 
+
 --------------------------------------------------
--- Кнопки
+-- Buttons
 --------------------------------------------------
 
 function gui.clearButtons()
@@ -64,7 +65,7 @@ end
 
 
 --------------------------------------------------
--- Меню
+-- Menu
 --------------------------------------------------
 
 function gui.drawMenu()
@@ -72,6 +73,7 @@ function gui.drawMenu()
     renderer.clear()
 
     gui.clearButtons()
+
 
 
     renderer.center(
@@ -89,27 +91,29 @@ function gui.drawMenu()
 
 
 
-    local play =
-        widgets.button(
-            10,
-            8,
-            18,
-            3,
-            "PLAY",
+    local play = widgets.button(
 
-            function()
+        10,
+        8,
+        18,
+        3,
 
-                controller.start(
-                    gui.playerName
-                )
+        "PLAY",
+
+        function()
+
+            controller.start(
+                gui.playerName
+            )
 
 
-                gui.screen = "game"
+            gui.screen = "game"
 
-                gui.draw()
+            gui.draw()
 
-            end
-        )
+        end
+
+    )
 
 
     gui.addButton(play)
@@ -128,14 +132,13 @@ end
 
 
 --------------------------------------------------
--- Игра
+-- Game
 --------------------------------------------------
 
 function gui.drawGame()
 
 
     renderer.clear()
-
 
     gui.clearButtons()
 
@@ -202,30 +205,40 @@ function gui.drawGame()
 
 
     cardRenderer.drawDealer(
+
         controller.dealerCards(),
+
         3,
         5,
+
         not controller.finished()
+
     )
 
 
 
     renderer.text(
+
         3,
         13,
+
         "PLAYER: "
         ..
         tostring(
             controller.playerPoints()
         )
+
     )
 
 
 
     cardRenderer.drawHand(
+
         controller.playerCards(),
+
         3,
         14
+
     )
 
 
@@ -234,7 +247,9 @@ function gui.drawGame()
 
 
         renderer.center(
+
             18,
+
             "RESULT: "
             ..
             tostring(
@@ -242,7 +257,9 @@ function gui.drawGame()
             ),
 
             theme.colors.gold
+
         )
+
 
     end
 
@@ -252,7 +269,7 @@ end
 
 
 --------------------------------------------------
--- Админ
+-- Admin
 --------------------------------------------------
 
 function gui.drawAdmin()
@@ -265,9 +282,13 @@ function gui.drawAdmin()
 
 
     renderer.center(
+
         3,
+
         "ADMIN PANEL",
+
         theme.colors.gold
+
     )
 
 
@@ -276,7 +297,7 @@ end
 
 
 --------------------------------------------------
--- Рисование
+-- Draw
 --------------------------------------------------
 
 function gui.draw()
@@ -284,17 +305,21 @@ function gui.draw()
 
     if gui.screen == "menu" then
 
+
         gui.drawMenu()
 
 
     elseif gui.screen == "game" then
+
 
         gui.drawGame()
 
 
     elseif gui.screen == "admin" then
 
+
         gui.drawAdmin()
+
 
     end
 
@@ -304,7 +329,7 @@ end
 
 
 --------------------------------------------------
--- TOUCH
+-- Touch
 --------------------------------------------------
 
 function gui.touch(x,y)
@@ -338,13 +363,20 @@ function gui.touch(x,y)
     for _, button in ipairs(gui.buttons) do
 
 
-        if button.click(
-            x,
-            y
-        ) then
+        if button.click then
 
 
-            return true
+            if button.click(
+                x,
+                y
+            ) then
+
+
+                return true
+
+
+            end
+
 
         end
 
@@ -361,7 +393,7 @@ end
 
 
 --------------------------------------------------
--- Запуск
+-- Start
 --------------------------------------------------
 
 function gui.start()
@@ -374,17 +406,28 @@ function gui.start()
     while true do
 
 
-        local _, _, _, x, y, button =
-            event.pull(
-                "touch"
+        local e = {
+            event.pull()
+        }
+
+
+
+        if e[1] == "touch" then
+
+
+            local x = e[4]
+
+            local y = e[5]
+
+
+
+            gui.touch(
+                x,
+                y
             )
 
 
-
-        gui.touch(
-            x,
-            y
-        )
+        end
 
 
     end
