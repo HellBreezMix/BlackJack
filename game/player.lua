@@ -7,31 +7,39 @@ local cards = require("game.cards")
 
 local player = {}
 
+player.__index = player
+
+
 --------------------------------------------------
 -- Создать игрока
 --------------------------------------------------
 
 function player.new(name)
 
-    return {
+    local self = setmetatable({}, player)
 
-        name = name or "Player",
 
-        hand = {},
+    self.name =
+        name or "Player"
 
-        bet = 0,
 
-        standing = false,
+    self.hand = {}
 
-        blackjack = false,
+    self.bet = 0
 
-        bust = false,
+    self.standing = false
 
-        doubled = false
+    self.blackjack = false
 
-    }
+    self.bust = false
+
+    self.doubled = false
+
+
+    return self
 
 end
+
 
 
 --------------------------------------------------
@@ -55,6 +63,7 @@ function player.reset(self)
 end
 
 
+
 --------------------------------------------------
 -- Взять карту
 --------------------------------------------------
@@ -69,25 +78,27 @@ function player.hit(self, card)
 
 
     table.insert(
-
         self.hand,
-
         card
-
     )
 
 
     self.blackjack =
-        cards.isBlackjack(self.hand)
+        cards.isBlackjack(
+            self.hand
+        )
 
 
     self.bust =
-        cards.isBust(self.hand)
+        cards.isBust(
+            self.hand
+        )
 
 
     return true
 
 end
+
 
 
 --------------------------------------------------
@@ -96,9 +107,12 @@ end
 
 function player.points(self)
 
-    return cards.getValue(self.hand)
+    return cards.getValue(
+        self.hand
+    )
 
 end
+
 
 
 --------------------------------------------------
@@ -112,6 +126,7 @@ function player.cardCount(self)
 end
 
 
+
 --------------------------------------------------
 -- Получить руку
 --------------------------------------------------
@@ -121,6 +136,7 @@ function player.getHand(self)
     return self.hand
 
 end
+
 
 
 --------------------------------------------------
@@ -134,6 +150,7 @@ function player.lastCard(self)
 end
 
 
+
 --------------------------------------------------
 -- Стоять
 --------------------------------------------------
@@ -143,6 +160,7 @@ function player.stand(self)
     self.standing = true
 
 end
+
 
 
 --------------------------------------------------
@@ -159,8 +177,9 @@ function player.canHit(self)
 end
 
 
+
 --------------------------------------------------
--- Можно разделить
+-- Разделение
 --------------------------------------------------
 
 function player.canSplit(self)
@@ -179,8 +198,9 @@ function player.canSplit(self)
 end
 
 
+
 --------------------------------------------------
--- Удвоение ставки
+-- Удвоение
 --------------------------------------------------
 
 function player.doubleBet(self)
@@ -194,15 +214,13 @@ function player.doubleBet(self)
 end
 
 
---------------------------------------------------
--- Удвоена ли ставка
---------------------------------------------------
 
 function player.isDoubled(self)
 
     return self.doubled
 
 end
+
 
 
 --------------------------------------------------
@@ -216,6 +234,7 @@ function player.isStanding(self)
 end
 
 
+
 function player.isBust(self)
 
     return self.bust
@@ -223,11 +242,13 @@ function player.isBust(self)
 end
 
 
+
 function player.isBlackjack(self)
 
     return self.blackjack
 
 end
+
 
 
 --------------------------------------------------
@@ -242,11 +263,13 @@ function player.setBet(self, amount)
 end
 
 
+
 function player.getBet(self)
 
     return self.bet
 
 end
+
 
 
 --------------------------------------------------
@@ -258,6 +281,7 @@ function player.getName(self)
     return self.name
 
 end
+
 
 
 --------------------------------------------------
