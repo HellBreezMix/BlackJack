@@ -4,15 +4,13 @@
 --------------------------------------------------
 
 local game = require("game.game")
-
 local payout = require("game.payout")
-
 
 local controller = {}
 
 
 --------------------------------------------------
--- Текущий игрок
+-- Игрок
 --------------------------------------------------
 
 controller.playerName = "Player"
@@ -25,28 +23,40 @@ controller.playerName = "Player"
 
 function controller.start(playerName)
 
-
     controller.playerName =
         playerName or "Player"
 
 
-
     game.new(
-
         controller.playerName
-
     )
 
 
     game.deal()
-
 
 end
 
 
 
 --------------------------------------------------
--- Взять карту
+-- Новая партия
+--------------------------------------------------
+
+function controller.newGame()
+
+    game.new(
+        controller.playerName
+    )
+
+
+    game.deal()
+
+end
+
+
+
+--------------------------------------------------
+-- HIT
 --------------------------------------------------
 
 function controller.hit()
@@ -54,21 +64,22 @@ function controller.hit()
 
     if game.isFinished() then
 
-        return
+        return false
 
     end
 
 
-
     game.playerHit()
 
+
+    return true
 
 end
 
 
 
 --------------------------------------------------
--- Остановиться
+-- STAND
 --------------------------------------------------
 
 function controller.stand()
@@ -76,21 +87,22 @@ function controller.stand()
 
     if game.isFinished() then
 
-        return
+        return false
 
     end
 
 
-
     game.playerStand()
 
+
+    return true
 
 end
 
 
 
 --------------------------------------------------
--- Удвоить ставку
+-- DOUBLE
 --------------------------------------------------
 
 function controller.double()
@@ -98,42 +110,36 @@ function controller.double()
 
     if game.isFinished() then
 
-        return
+        return false
 
     end
 
 
-
-    game.playerDouble()
-
+    return game.playerDouble()
 
 end
 
 
 
 --------------------------------------------------
--- Получить карты игрока
+-- Карты игрока
 --------------------------------------------------
 
 function controller.playerCards()
 
-
     return game.getPlayerHand()
-
 
 end
 
 
 
 --------------------------------------------------
--- Получить карты дилера
+-- Карты дилера
 --------------------------------------------------
 
 function controller.dealerCards()
 
-
     return game.getDealerHand()
-
 
 end
 
@@ -145,9 +151,7 @@ end
 
 function controller.playerPoints()
 
-
     return game.getPlayerPoints()
-
 
 end
 
@@ -159,23 +163,31 @@ end
 
 function controller.dealerPoints()
 
-
     return game.getDealerPoints()
-
 
 end
 
 
 
 --------------------------------------------------
--- Проверка окончания
+-- Можно играть?
+--------------------------------------------------
+
+function controller.canPlay()
+
+    return not game.isFinished()
+
+end
+
+
+
+--------------------------------------------------
+-- Закончена ли игра
 --------------------------------------------------
 
 function controller.finished()
 
-
     return game.isFinished()
-
 
 end
 
@@ -229,14 +241,12 @@ end
 
 
 --------------------------------------------------
--- Объект игры
+-- Получить игру
 --------------------------------------------------
 
 function controller.getGame()
 
-
     return game
-
 
 end
 
