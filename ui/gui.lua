@@ -1,7 +1,7 @@
 --------------------------------------------------
 -- BlackJack
 -- ui/gui.lua
--- updated version
+-- improved table layout
 --------------------------------------------------
 
 local event = require("event")
@@ -17,7 +17,6 @@ local cardRenderer = require("ui.card_renderer")
 local gui = {}
 
 
-
 --------------------------------------------------
 -- STATE
 --------------------------------------------------
@@ -31,7 +30,7 @@ gui.playerName = "Player"
 
 
 --------------------------------------------------
--- BUTTON SYSTEM
+-- BUTTONS
 --------------------------------------------------
 
 function gui.clearButtons()
@@ -51,54 +50,37 @@ function gui.addButton(
     callback
 )
 
-
     table.insert(
 
         gui.buttons,
 
         {
-
-            x = x,
-
-            y = y,
-
-            w = w,
-
-            h = h,
-
-            text = text,
-
-            callback = callback
-
+            x=x,
+            y=y,
+            w=w,
+            h=h,
+            text=text,
+            callback=callback
         }
 
     )
-
 
 end
 
 
 
---------------------------------------------------
--- DRAW BUTTONS
---------------------------------------------------
-
 function gui.drawButtons()
 
 
-    for _, b in ipairs(gui.buttons) do
+    for _,b in ipairs(gui.buttons) do
 
 
         renderer.panel(
 
             b.x,
-
             b.y,
-
             b.w,
-
             b.h,
-
             0x3A3A3A
 
         )
@@ -107,55 +89,34 @@ function gui.drawButtons()
         renderer.border(
 
             b.x,
-
             b.y,
-
             b.w,
-
             b.h,
-
             theme.colors.gold
 
         )
 
 
-
-        local textWidth =
-
-            unicode.len(
-                tostring(b.text)
-            )
-
-
-
         local tx =
-
             b.x +
-
             math.floor(
-                (b.w - textWidth) / 2
+                (b.w - unicode.len(b.text))
+                / 2
             )
-
 
 
         local ty =
-
             b.y +
-
             math.floor(
-                (b.h + 1) / 2
+                b.h / 2
             )
-
 
 
         renderer.text(
 
             tx,
-
             ty,
-
             b.text,
-
             theme.colors.text
 
         )
@@ -168,25 +129,18 @@ end
 
 
 
---------------------------------------------------
--- CHECK BUTTONS
---------------------------------------------------
-
 function gui.checkButtons(x,y)
 
 
-    for _, b in ipairs(gui.buttons) do
+    for _,b in ipairs(gui.buttons) do
 
 
         if
 
             x >= b.x
-
-            and x <= b.x + b.w
-
+            and x <= b.x+b.w
             and y >= b.y
-
-            and y <= b.y + b.h
+            and y <= b.y+b.h
 
         then
 
@@ -214,7 +168,7 @@ end
 
 
 --------------------------------------------------
--- MENU
+-- DRAW MENU
 --------------------------------------------------
 
 function gui.drawMenu()
@@ -230,39 +184,28 @@ function gui.drawMenu()
     renderer.center(
 
         2,
-
         "BLACKJACK",
-
         theme.colors.gold
 
     )
 
 
-
     renderer.center(
 
         4,
-
         "OpenComputers Casino",
-
         theme.colors.text
 
     )
 
 
 
-
-
     gui.addButton(
 
+        30,
         10,
-
-        8,
-
         20,
-
         3,
-
         "PLAY",
 
 
@@ -284,9 +227,7 @@ function gui.drawMenu()
 
         end
 
-
     )
-
 
 
     gui.drawButtons()
@@ -297,7 +238,126 @@ end
 
 
 --------------------------------------------------
--- GAME
+-- CARD ROW DRAW
+--------------------------------------------------
+
+function gui.drawCards(
+    hand,
+    startY
+)
+
+
+    local screenWidth =
+        renderer.getResolution()
+
+
+    local cardWidth =
+        cardRenderer.width + 1
+
+
+    local maxCards =
+        math.floor(
+            screenWidth / cardWidth
+        )
+
+
+    local x =
+        3
+
+
+    local y =
+        startY
+
+
+
+    local count = 0
+
+
+
+    for _,card in ipairs(hand) do
+
+
+        if count >= maxCards then
+
+
+            count = 0
+
+            x = 3
+
+            y = y + cardRenderer.height + 2
+
+
+        end
+
+
+
+        cardRenderer.draw(
+
+            x,
+            y,
+            card.rank,
+            card.suit
+
+        )
+
+
+        x =
+            x + cardWidth
+
+
+        count = count + 1
+
+
+    end
+
+
+end
+
+
+
+--------------------------------------------------
+-- DEALER CARDS
+--------------------------------------------------
+
+function gui.drawDealerCards()
+
+
+    cardRenderer.drawDealer(
+
+        controller.dealerCards(),
+
+        3,
+
+        5,
+
+        not controller.finished()
+
+    )
+
+
+end
+
+
+
+--------------------------------------------------
+-- PLAYER CARDS
+--------------------------------------------------
+
+function gui.drawPlayerCards()
+
+
+    gui.drawCards(
+
+        controller.playerCards(),
+
+        17
+
+    )
+
+
+end
+--------------------------------------------------
+-- GAME SCREEN
 --------------------------------------------------
 
 function gui.drawGame()
@@ -322,72 +382,43 @@ function gui.drawGame()
 
 
 
+    --------------------------------------------------
+    -- DEALER
+    --------------------------------------------------
 
-    renderer.text(
-
-        3,
-
-        4,
-
-        "DEALER:",
-
-        theme.colors.text
-
-    )
-
-
-
-    renderer.text(
-
-        12,
+    renderer.center(
 
         4,
 
+        "DEALER: "
+        ..
         tostring(
             controller.dealerPoints()
         ),
 
-        theme.colors.gold
+        theme.colors.text
 
     )
 
 
 
-
-    cardRenderer.drawDealer(
-
-        controller.dealerCards(),
-
-        3,
-
-        6,
-
-        not controller.finished()
-
-    )
-        cardRenderer.drawDealer(
-
-        controller.dealerCards(),
-
-        3,
-
-        6,
-
-        not controller.finished()
-
-    )
+    gui.drawDealerCards()
 
 
 
+    --------------------------------------------------
+    -- PLAYER
+    --------------------------------------------------
 
-
-    renderer.text(
-
-        3,
+    renderer.center(
 
         15,
 
-        "PLAYER:",
+        "PLAYER: "
+        ..
+        tostring(
+            controller.playerPoints()
+        ),
 
         theme.colors.text
 
@@ -395,39 +426,13 @@ function gui.drawGame()
 
 
 
-    renderer.text(
-
-        12,
-
-        15,
-
-        tostring(
-            controller.playerPoints()
-        ),
-
-        theme.colors.gold
-
-    )
-
-
-
-
-    cardRenderer.drawHand(
-
-        controller.playerCards(),
-
-        3,
-
-        17
-
-    )
-
+    gui.drawPlayerCards()
 
 
 
 
     --------------------------------------------------
-    -- RESULT / BUTTONS
+    -- RESULT
     --------------------------------------------------
 
     if controller.finished() then
@@ -435,12 +440,10 @@ function gui.drawGame()
 
         renderer.center(
 
-            22,
+            25,
 
             "RESULT: "
-
             ..
-
             tostring(
                 controller.result()
             ),
@@ -453,11 +456,11 @@ function gui.drawGame()
 
         gui.addButton(
 
-            12,
-
-            25,
-
             18,
+
+            27,
+
+            16,
 
             3,
 
@@ -475,6 +478,33 @@ function gui.drawGame()
 
             end
 
+        )
+
+
+
+        gui.addButton(
+
+            38,
+
+            27,
+
+            12,
+
+            3,
+
+            "MENU",
+
+
+            function()
+
+
+                gui.screen = "menu"
+
+
+                gui.draw()
+
+
+            end
 
         )
 
@@ -484,11 +514,16 @@ function gui.drawGame()
 
 
 
+        --------------------------------------------------
+        -- GAME BUTTONS
+        --------------------------------------------------
+
+
         gui.addButton(
 
-            5,
+            10,
 
-            25,
+            27,
 
             12,
 
@@ -508,16 +543,15 @@ function gui.drawGame()
 
             end
 
-
         )
 
 
 
         gui.addButton(
 
-            20,
+            26,
 
-            25,
+            27,
 
             12,
 
@@ -537,7 +571,6 @@ function gui.drawGame()
 
             end
 
-
         )
 
 
@@ -555,7 +588,7 @@ end
 
 
 --------------------------------------------------
--- DRAW
+-- MAIN DRAW
 --------------------------------------------------
 
 function gui.draw()
