@@ -42,6 +42,7 @@ local files = {
     "game/game.lua",
     "game/controller.lua",
     "game/rules.lua",
+    "game/payout.lua",
 
 
     -- интерфейс
