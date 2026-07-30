@@ -311,6 +311,12 @@ end
 
 function gui.touch(x,y)
 
+    renderer.text(
+        2,
+        25,
+        "CLICK "..x.." "..y
+    )
+
 
     gui.checkButtons(
         x,
