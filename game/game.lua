@@ -26,6 +26,7 @@ game.finished = false
 game.result = nil
 
 
+
 --------------------------------------------------
 -- Новая игра
 --------------------------------------------------
@@ -124,7 +125,7 @@ end
 
 
 --------------------------------------------------
--- HIT
+-- HIT игрока
 --------------------------------------------------
 
 function game.playerHit()
@@ -140,6 +141,7 @@ function game.playerHit()
 
     local card =
         deck.draw()
+
 
 
     if card then
@@ -158,7 +160,7 @@ end
 
 
 --------------------------------------------------
--- STAND
+-- STAND игрока
 --------------------------------------------------
 
 function game.playerStand()
@@ -169,6 +171,7 @@ function game.playerStand()
         return
 
     end
+
 
 
     game.player:stand()
@@ -207,6 +210,7 @@ function game.dealerTurn()
             deck.draw()
 
 
+
         if card then
 
             game.dealer:hit(card)
@@ -233,7 +237,7 @@ end
 
 
 --------------------------------------------------
--- Проверка
+-- Проверка состояния
 --------------------------------------------------
 
 function game.check()
@@ -241,7 +245,9 @@ function game.check()
 
     if game.player:isBust() then
 
-        game.finish("LOSE")
+        game.finish(
+            "LOSE"
+        )
 
         return
 
@@ -251,7 +257,9 @@ function game.check()
 
     if game.dealer:isBust() then
 
-        game.finish("WIN")
+        game.finish(
+            "WIN"
+        )
 
         return
 
@@ -288,17 +296,26 @@ function game.compare()
 
     if p > d then
 
-        game.finish("WIN")
+
+        game.finish(
+            "WIN"
+        )
 
 
     elseif p < d then
 
-        game.finish("LOSE")
+
+        game.finish(
+            "LOSE"
+        )
 
 
     else
 
-        game.finish("DRAW")
+
+        game.finish(
+            "DRAW"
+        )
 
 
     end
@@ -330,6 +347,13 @@ end
 
 function game.getPlayerHand()
 
+    if not game.player then
+
+        return {}
+
+    end
+
+
     return game.player.hand
 
 end
@@ -342,7 +366,16 @@ end
 
 function game.getDealerHand()
 
+
+    if not game.dealer then
+
+        return {}
+
+    end
+
+
     return game.dealer.hand
+
 
 end
 
@@ -354,7 +387,16 @@ end
 
 function game.getPlayerPoints()
 
+
+    if not game.player then
+
+        return 0
+
+    end
+
+
     return game.player:points()
+
 
 end
 
@@ -367,6 +409,14 @@ end
 function game.getDealerPoints()
 
 
+    if not game.dealer then
+
+        return 0
+
+    end
+
+
+
     if game.finished then
 
         return game.dealer:points()
@@ -374,7 +424,9 @@ function game.getDealerPoints()
     end
 
 
+
     return "?"
+
 
 end
 
@@ -399,6 +451,40 @@ end
 function game.getResult()
 
     return game.result
+
+end
+
+
+
+--------------------------------------------------
+-- Совместимость с controller.lua
+--------------------------------------------------
+
+function game.hit()
+
+
+    return game.playerHit()
+
+
+end
+
+
+
+function game.stand()
+
+
+    return game.playerStand()
+
+
+end
+
+
+
+function game.double()
+
+
+    return game.playerDouble()
+
 
 end
 
