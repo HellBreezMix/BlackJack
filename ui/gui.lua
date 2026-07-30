@@ -1,10 +1,11 @@
 --------------------------------------------------
 -- BlackJack
 -- ui/gui.lua
--- simplified working version
+-- working version
 --------------------------------------------------
 
 local event = require("event")
+local unicode = require("unicode")
 
 local renderer = require("ui.renderer")
 local theme = require("ui.theme")
@@ -12,7 +13,10 @@ local theme = require("ui.theme")
 local controller = require("game.controller")
 local cardRenderer = require("ui.card_renderer")
 
+
 local gui = {}
+
+
 
 --------------------------------------------------
 -- STATE
@@ -23,6 +27,7 @@ gui.screen = "menu"
 gui.buttons = {}
 
 gui.playerName = "Player"
+
 
 
 --------------------------------------------------
@@ -37,62 +42,155 @@ end
 
 
 
-function gui.addButton(x,y,w,h,text,callback)
+function gui.addButton(
+    x,
+    y,
+    w,
+    h,
+    text,
+    callback
+)
+
 
     table.insert(
+
         gui.buttons,
+
         {
-            x=x,
-            y=y,
-            w=w,
-            h=h,
-            text=text,
-            callback=callback
+
+            x = x,
+
+            y = y,
+
+            w = w,
+
+            h = h,
+
+            text = text,
+
+            callback = callback
+
         }
+
     )
+
 
 end
 
 
 
+
+--------------------------------------------------
+-- DRAW BUTTONS
+--------------------------------------------------
+
 function gui.drawButtons()
 
-    for _,b in ipairs(gui.buttons) do
+
+    for _, b in ipairs(gui.buttons) do
 
 
-        renderer.border(
+        renderer.panel(
+
             b.x,
+
             b.y,
+
             b.w,
+
             b.h,
-            theme.colors.gold
+
+            0x3A3A3A
+
         )
 
 
-        renderer.center(
-            b.y + 1,
+        renderer.border(
+
+            b.x,
+
+            b.y,
+
+            b.w,
+
+            b.h,
+
+            theme.colors.gold
+
+        )
+
+
+
+        local textWidth =
+
+            unicode.len(
+                tostring(b.text)
+            )
+
+
+
+        local tx =
+
+            b.x +
+
+            math.floor(
+                (b.w - textWidth) / 2
+            )
+
+
+
+        local ty =
+
+            b.y +
+
+            math.floor(
+                (b.h + 1) / 2
+            )
+
+
+
+        renderer.text(
+
+            tx,
+
+            ty,
+
             b.text,
+
             theme.colors.text
+
         )
 
 
     end
 
+
 end
 
 
 
+
+
+--------------------------------------------------
+-- CHECK BUTTONS
+--------------------------------------------------
+
 function gui.checkButtons(x,y)
 
 
-    for _,b in ipairs(gui.buttons) do
+    for _, b in ipairs(gui.buttons) do
 
 
         if
+
             x >= b.x
-            and x <= b.x+b.w
+
+            and x <= b.x + b.w
+
             and y >= b.y
-            and y <= b.y+b.h
+
+            and y <= b.y + b.h
+
         then
 
 
@@ -113,7 +211,10 @@ function gui.checkButtons(x,y)
 
     return false
 
+
 end
+
+
 
 
 
@@ -126,47 +227,67 @@ function gui.drawMenu()
 
     renderer.clear()
 
+
     gui.clearButtons()
 
 
+
     renderer.center(
+
         2,
+
         "BLACKJACK",
+
         theme.colors.gold
+
     )
+
 
 
     renderer.center(
+
         4,
+
         "OpenComputers Casino",
+
         theme.colors.text
+
     )
+
 
 
 
     gui.addButton(
 
+        10,
+
         8,
-        8,
+
         20,
+
         3,
+
         "PLAY",
+
 
         function()
 
 
             controller.start(
+
                 gui.playerName
+
             )
 
 
-            gui.screen="game"
+            gui.screen = "game"
 
 
             gui.draw()
 
 
         end
+
 
     )
 
@@ -176,6 +297,8 @@ function gui.drawMenu()
 
 
 end
+
+
 
 
 
@@ -194,88 +317,198 @@ function gui.drawGame()
 
 
     renderer.center(
+
         2,
+
         "BLACKJACK TABLE",
+
         theme.colors.gold
+
     )
 
 
 
+
     renderer.text(
+
         3,
-        5,
-        "PLAYER:"
+
+        4,
+
+        "DEALER:",
+
+        theme.colors.text
+
     )
 
 
+
     renderer.text(
+
         12,
-        5,
-        tostring(
-            controller.playerPoints()
-        )
-    )
 
+        4,
 
-
-    renderer.text(
-        3,
-        7,
-        "DEALER:"
-    )
-
-
-    renderer.text(
-        12,
-        7,
         tostring(
             controller.dealerPoints()
+        ),
+
+        theme.colors.gold
+
+    )
+
+
+
+
+    cardRenderer.drawDealer(
+
+        controller.dealerCards(),
+
+        3,
+
+        6,
+
+        not controller.finished()
+
+    )
+
+
+
+
+
+    renderer.text(
+
+        3,
+
+        15,
+
+        "PLAYER:",
+
+        theme.colors.text
+
+    )
+
+
+
+    renderer.text(
+
+        12,
+
+        15,
+
+        tostring(
+            controller.playerPoints()
+        ),
+
+        theme.colors.gold
+
+    )
+
+
+
+
+    cardRenderer.drawHand(
+
+        controller.playerCards(),
+
+        3,
+
+        17
+
+    )
+
+
+
+
+
+    if controller.finished() then
+
+
+        renderer.center(
+
+            22,
+
+            "RESULT: "
+
+            ..
+
+            tostring(
+                controller.result()
+            ),
+
+            theme.colors.gold
+
         )
-    )
+
+
+    else
+
+
+        gui.addButton(
+
+            5,
+
+            28,
+
+            12,
+
+            3,
+
+            "HIT",
+
+
+            function()
+
+
+                controller.hit()
+
+                gui.draw()
+
+
+            end
+
+
+        )
 
 
 
-    gui.addButton(
-        5,
-        18,
-        12,
-        3,
-        "HIT",
+        gui.addButton(
 
-        function()
+            20,
 
-            controller.hit()
+            28,
 
-            gui.draw()
+            12,
 
-        end
-    )
+            3,
+
+            "STAND",
 
 
+            function()
 
-    gui.addButton(
-        20,
-        18,
-        12,
-        3,
-        "STAND",
 
-        function()
+                controller.stand()
 
-            controller.stand()
+                gui.draw()
 
-            gui.draw()
 
-        end
-    )
+            end
+
+
+        )
+
+
+    end
 
 
 
     gui.drawButtons()
 
 
-
 end
+
+
 
 
 
@@ -286,13 +519,13 @@ end
 function gui.draw()
 
 
-    if gui.screen=="menu" then
+    if gui.screen == "menu" then
 
 
         gui.drawMenu()
 
 
-    elseif gui.screen=="game" then
+    elseif gui.screen == "game" then
 
 
         gui.drawGame()
@@ -305,26 +538,27 @@ end
 
 
 
+
+
 --------------------------------------------------
 -- TOUCH
 --------------------------------------------------
 
 function gui.touch(x,y)
 
-    renderer.text(
-        2,
-        25,
-        "CLICK "..x.." "..y
-    )
-
 
     gui.checkButtons(
+
         x,
+
         y
+
     )
 
 
 end
+
+
 
 
 
@@ -342,7 +576,7 @@ function gui.start()
     while true do
 
 
-        local _, address, x, y, button, player =
+        local _, _, x, y =
             event.pull(
                 "touch"
             )
@@ -352,8 +586,11 @@ function gui.start()
 
 
             gui.touch(
+
                 x,
+
                 y
+
             )
 
 
@@ -366,5 +603,9 @@ function gui.start()
 end
 
 
+
+
+
+--------------------------------------------------
 
 return gui
