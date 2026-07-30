@@ -1,7 +1,7 @@
 --------------------------------------------------
 -- BlackJack
 -- ui/gui.lua
--- casino interface
+-- casino interface v2
 --------------------------------------------------
 
 local event = require("event")
@@ -26,7 +26,7 @@ gui.screen = "menu"
 
 gui.buttons = {}
 
-gui.playerName = "Guest"
+gui.playerName = "Unknown"
 
 gui.authorized = false
 
@@ -36,8 +36,8 @@ gui.authorized = false
 -- TOP PLAYERS
 --------------------------------------------------
 
--- пока пусто
--- сюда позже подключим data/players.lua
+-- Пока пустой.
+-- Позже подключим data/players.lua
 
 gui.topPlayers = {}
 
@@ -45,7 +45,7 @@ gui.topPlayers = {}
 
 
 --------------------------------------------------
--- BUTTONS
+-- BUTTON SYSTEM
 --------------------------------------------------
 
 function gui.clearButtons()
@@ -53,6 +53,7 @@ function gui.clearButtons()
     gui.buttons = {}
 
 end
+
 
 
 
@@ -71,18 +72,23 @@ function gui.addButton(
         gui.buttons,
 
         {
+
             x=x,
             y=y,
             w=w,
             h=h,
+
             text=text,
+
             callback=callback
+
         }
 
     )
 
 
 end
+
 
 
 
@@ -118,10 +124,18 @@ function gui.drawButtons()
         local tx =
 
             b.x +
+
             math.floor(
-                (b.w -
-                unicode.len(b.text))
-                /2
+
+                (
+                    b.w -
+                    unicode.len(
+                        b.text
+                    )
+                )
+                /
+                2
+
             )
 
 
@@ -129,7 +143,7 @@ function gui.drawButtons()
 
             tx,
 
-            b.y+1,
+            b.y + 1,
 
             b.text,
 
@@ -146,39 +160,57 @@ end
 
 
 
+
 function gui.checkButtons(x,y)
 
 
     for _,b in ipairs(gui.buttons) do
 
 
+
         if
 
             x >= b.x
-            and x <= b.x+b.w
 
             and
 
+            x <= b.x + b.w
+
+
+            and
+
+
             y >= b.y
-            and y <= b.y+b.h
+
+            and
+
+
+            y <= b.y + b.h
 
 
         then
 
 
+
             if b.callback then
 
+
                 b.callback()
+
 
             end
 
 
+
             return true
+
 
         end
 
 
+
     end
+
 
 
     return false
@@ -190,26 +222,34 @@ end
 
 
 
+
 --------------------------------------------------
--- RIGHT PANEL
+-- PLAYER PANEL
 --------------------------------------------------
 
 function gui.drawSidePanel()
 
 
-    local width = renderer.getResolution()
+    local width,height =
+        renderer.getResolution()
 
 
-    local x = width - 28
+
+    local x =
+        width - 28
 
 
 
     renderer.panel(
 
         x,
+
         1,
+
         26,
+
         35,
+
         0x101010
 
     )
@@ -219,12 +259,17 @@ function gui.drawSidePanel()
     renderer.border(
 
         x,
+
         1,
+
         26,
+
         35,
+
         theme.colors.gold
 
     )
+
 
 
 
@@ -240,13 +285,16 @@ function gui.drawSidePanel()
 
 
 
+
+
     if gui.authorized then
 
 
 
         renderer.text(
 
-            x+2,
+            x + 2,
+
             5,
 
             "PLAYER:",
@@ -256,9 +304,11 @@ function gui.drawSidePanel()
         )
 
 
+
         renderer.text(
 
-            x+10,
+            x + 10,
+
             5,
 
             gui.playerName,
@@ -272,15 +322,17 @@ function gui.drawSidePanel()
     else
 
 
+
         renderer.center(
 
             5,
 
-            "WAITING LOGIN",
+            "WAITING",
 
             theme.colors.text
 
         )
+
 
 
     end
@@ -301,11 +353,13 @@ function gui.drawSidePanel()
 
 
 
+
     local y = 11
 
 
 
     for i,p in ipairs(gui.topPlayers) do
+
 
 
         if i > 15 then
@@ -315,9 +369,10 @@ function gui.drawSidePanel()
         end
 
 
+
         renderer.text(
 
-            x+2,
+            x + 2,
 
             y,
 
@@ -330,21 +385,24 @@ function gui.drawSidePanel()
 
         renderer.text(
 
-            x+17,
+            x + 17,
 
             y,
 
-            tostring(p.money),
+            tostring(
+                p.money
+            ),
 
             theme.colors.gold
 
         )
 
 
-        y=y+1
+        y = y + 1
 
 
     end
+
 
 
 end
@@ -392,15 +450,22 @@ function gui.drawMenu()
 
 
 
+
     gui.addButton(
 
         10,
+
         8,
+
         20,
+
         3,
+
         "PLAY",
 
+
         function()
+
 
 
             if not gui.authorized then
@@ -411,11 +476,13 @@ function gui.drawMenu()
 
 
 
+
             controller.start(
 
                 gui.playerName
 
             )
+
 
 
             gui.screen="game"
@@ -424,49 +491,11 @@ function gui.drawMenu()
             gui.draw()
 
 
-        end
-
-    )
-
-
-
-
-    gui.addButton(
-
-        10,
-        13,
-        20,
-        3,
-        "LOGIN",
-
-        function()
-
-
-            gui.authorized=true
-
-
-            gui.draw()
-
 
         end
 
+
     )
-
-
-
-    gui.drawButtons()
-
-
-    gui.drawSidePanel()
-
-
-end
-
-
-
-
-
-
 --------------------------------------------------
 -- GAME
 --------------------------------------------------
@@ -494,10 +523,14 @@ function gui.drawGame()
 
 
 
+    --------------------------------------------------
+    -- DEALER
+    --------------------------------------------------
 
     renderer.text(
 
         3,
+
         4,
 
         "DEALER:",
@@ -507,13 +540,17 @@ function gui.drawGame()
     )
 
 
+
     renderer.text(
 
         12,
+
         4,
 
         tostring(
+
             controller.dealerPoints()
+
         ),
 
         theme.colors.gold
@@ -522,11 +559,13 @@ function gui.drawGame()
 
 
 
+
     cardRenderer.drawDealer(
 
         controller.dealerCards(),
 
         3,
+
         6,
 
         not controller.finished()
@@ -537,9 +576,14 @@ function gui.drawGame()
 
 
 
+    --------------------------------------------------
+    -- PLAYER
+    --------------------------------------------------
+
     renderer.text(
 
         3,
+
         16,
 
         "PLAYER:",
@@ -549,13 +593,17 @@ function gui.drawGame()
     )
 
 
+
     renderer.text(
 
         12,
+
         16,
 
         tostring(
+
             controller.playerPoints()
+
         ),
 
         theme.colors.gold
@@ -564,11 +612,13 @@ function gui.drawGame()
 
 
 
+
     cardRenderer.drawHand(
 
         controller.playerCards(),
 
         3,
+
         18
 
     )
@@ -577,6 +627,10 @@ function gui.drawGame()
 
 
 
+
+    --------------------------------------------------
+    -- RESULT
+    --------------------------------------------------
 
     if controller.finished() then
 
@@ -587,9 +641,13 @@ function gui.drawGame()
             26,
 
             "RESULT: "
+
             ..
+
             tostring(
+
                 controller.result()
+
             ),
 
             theme.colors.gold
@@ -602,12 +660,19 @@ function gui.drawGame()
         gui.addButton(
 
             5,
+
             30,
+
             14,
+
             3,
+
             "NEW GAME",
 
+
+
             function()
+
 
 
                 controller.start(
@@ -617,24 +682,35 @@ function gui.drawGame()
                 )
 
 
+
                 gui.draw()
+
 
 
             end
 
+
         )
+
 
 
 
         gui.addButton(
 
             22,
+
             30,
+
             14,
+
             3,
+
             "MENU",
 
+
+
             function()
+
 
 
                 gui.screen="menu"
@@ -643,9 +719,13 @@ function gui.drawGame()
                 gui.draw()
 
 
+
             end
 
+
         )
+
+
 
 
 
@@ -653,46 +733,77 @@ function gui.drawGame()
 
 
 
+
         gui.addButton(
 
             5,
+
             30,
+
             12,
+
             3,
+
             "HIT",
+
+
 
             function()
 
+
+
                 controller.hit()
+
 
                 gui.draw()
 
+
+
             end
 
+
+
         )
+
+
 
 
 
         gui.addButton(
 
             20,
+
             30,
+
             12,
+
             3,
+
             "STAND",
+
+
 
             function()
 
+
+
                 controller.stand()
+
 
                 gui.draw()
 
+
+
             end
+
+
 
         )
 
 
+
     end
+
 
 
 
@@ -701,6 +812,7 @@ function gui.drawGame()
 
 
     gui.drawSidePanel()
+
 
 
 end
@@ -717,10 +829,12 @@ end
 function gui.draw()
 
 
+
     if gui.screen=="menu" then
 
 
         gui.drawMenu()
+
 
 
     elseif gui.screen=="game" then
@@ -729,10 +843,14 @@ function gui.draw()
         gui.drawGame()
 
 
+
     end
 
 
+
 end
+
+
 
 
 
@@ -742,89 +860,11 @@ end
 -- TOUCH
 --------------------------------------------------
 
-function gui.touch(x,y,player)
+function gui.touch(
+
+    x,
+
+   
 
 
-
-    if not gui.authorized
-    and player then
-
-
-        gui.authorized=true
-
-
-        gui.playerName=player
-
-
-        gui.draw()
-
-
-        return
-
-    end
-
-
-
-    gui.checkButtons(
-
-        x,
-
-        y
-
-    )
-
-
-end
-
-
-
-
-
---------------------------------------------------
--- START
---------------------------------------------------
-
-function gui.start()
-
-
-    gui.draw()
-
-
-
-    while true do
-
-
-        local _,_,x,y,button,player =
-
-            event.pull(
-                "touch"
-            )
-
-
-
-        if x and y then
-
-
-            gui.touch(
-
-                x,
-
-                y,
-
-                player
-
-            )
-
-
-        end
-
-
-    end
-
-
-end
-
-
-
-
-return gui
+   
