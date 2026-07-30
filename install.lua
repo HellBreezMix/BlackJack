@@ -20,38 +20,47 @@ local target =
 
 local files = {
 
-"main.lua",
-"config.lua",
-"blackjack.lua",
+    "main.lua",
+    "config.lua",
+    "blackjack.lua",
+    "manifest.lua",
+    "version.txt",
 
-"game/cards.lua",
-"game/deck.lua",
-"game/player.lua",
-"game/dealer.lua",
-"game/game.lua",
-"game/controller.lua",
-"game/rules.lua",
-"game/payout.lua",
+    -- game
+    "game/cards.lua",
+    "game/deck.lua",
+    "game/player.lua",
+    "game/dealer.lua",
+    "game/game.lua",
+    "game/controller.lua",
+    "game/rules.lua",
+    "game/payout.lua",
 
-"ui/gui.lua",
-"ui/widgets.lua",
-"ui/renderer.lua",
-"ui/card_renderer.lua",
-"ui/card_faces.lua",
-"ui/pixel.lua",
+    -- ui
+    "ui/gui.lua",
+    "ui/widgets.lua",
+    "ui/renderer.lua",
+    "ui/card_renderer.lua",
+    "ui/card_faces.lua",
+    "ui/pixel.lua",
 
-"lib/storage.lua",
-"lib/logger.lua",
-"lib/util.lua",
+    -- lib
+    "lib/storage.lua",
+    "lib/logger.lua",
+    "lib/util.lua",
 
-"admin/admin.lua",
+    -- admin
+    "admin/admin.lua",
 
-"bank/bank.lua",
+    -- bank
+    "bank/economy.lua",
 
-"hardware/chest.lua",
-"hardware/me.lua",
+    -- hardware
+    "hardware/me_network.lua",
+    "hardware/transposer.lua",
 
-"system/init.lua"
+    -- system
+    "system/init.lua"
 
 }
 
