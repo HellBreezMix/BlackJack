@@ -1,7 +1,7 @@
 --------------------------------------------------
 -- BlackJack
 -- ui/gui.lua
--- working version
+-- updated version
 --------------------------------------------------
 
 local event = require("event")
@@ -76,7 +76,6 @@ function gui.addButton(
 
 
 end
-
 
 
 
@@ -169,8 +168,6 @@ end
 
 
 
-
-
 --------------------------------------------------
 -- CHECK BUTTONS
 --------------------------------------------------
@@ -216,8 +213,6 @@ end
 
 
 
-
-
 --------------------------------------------------
 -- MENU
 --------------------------------------------------
@@ -253,6 +248,7 @@ function gui.drawMenu()
         theme.colors.text
 
     )
+
 
 
 
@@ -297,8 +293,6 @@ function gui.drawMenu()
 
 
 end
-
-
 
 
 
@@ -371,6 +365,17 @@ function gui.drawGame()
         not controller.finished()
 
     )
+        cardRenderer.drawDealer(
+
+        controller.dealerCards(),
+
+        3,
+
+        6,
+
+        not controller.finished()
+
+    )
 
 
 
@@ -421,6 +426,10 @@ function gui.drawGame()
 
 
 
+    --------------------------------------------------
+    -- RESULT / BUTTONS
+    --------------------------------------------------
+
     if controller.finished() then
 
 
@@ -441,14 +450,45 @@ function gui.drawGame()
         )
 
 
+
+        gui.addButton(
+
+            12,
+
+            25,
+
+            18,
+
+            3,
+
+            "NEW GAME",
+
+
+            function()
+
+
+                controller.newGame()
+
+
+                gui.draw()
+
+
+            end
+
+
+        )
+
+
+
     else
+
 
 
         gui.addButton(
 
             5,
 
-            28,
+            25,
 
             12,
 
@@ -461,6 +501,7 @@ function gui.drawGame()
 
 
                 controller.hit()
+
 
                 gui.draw()
 
@@ -476,7 +517,7 @@ function gui.drawGame()
 
             20,
 
-            28,
+            25,
 
             12,
 
@@ -489,6 +530,7 @@ function gui.drawGame()
 
 
                 controller.stand()
+
 
                 gui.draw()
 
@@ -577,9 +619,13 @@ function gui.start()
 
 
         local _, _, x, y =
+
             event.pull(
+
                 "touch"
+
             )
+
 
 
         if x and y then
