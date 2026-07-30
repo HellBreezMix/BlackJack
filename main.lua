@@ -2,6 +2,10 @@
 -- BlackJack
 -- main.lua
 --------------------------------------------------
+package.path =
+    "/BlackJack/?.lua;" ..
+    "/BlackJack/?/init.lua;" ..
+    package.path
 
 local logger = require("lib.logger")
 
