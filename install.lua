@@ -1,37 +1,29 @@
 --------------------------------------------------
 -- BlackJack
--- installer.lua
+-- install.lua
 --------------------------------------------------
 
 local shell = require("shell")
 local filesystem = require("filesystem")
 
-
 --------------------------------------------------
--- Настройки
+-- Репозиторий
 --------------------------------------------------
 
 local repo =
     "https://raw.githubusercontent.com/HellBreezMix/BlackJack/main/"
 
-
-local installPath =
-    "/BlackJack/"
-
-
 --------------------------------------------------
--- Файлы проекта
+-- Файлы
 --------------------------------------------------
 
 local files = {
 
+    "blackjack.lua",
 
     "main.lua",
     "config.lua",
-    "blackjack.lua",
     "manifest.lua",
-    "version.txt",
-
 
     "game/cards.lua",
     "game/deck.lua",
@@ -42,7 +34,6 @@ local files = {
     "game/rules.lua",
     "game/payout.lua",
 
-
     "ui/gui.lua",
     "ui/widgets.lua",
     "ui/renderer.lua",
@@ -52,37 +43,28 @@ local files = {
     "ui/sprites.lua",
     "ui/theme.lua",
 
-
     "lib/storage.lua",
     "lib/logger.lua",
     "lib/util.lua",
 
-
     "admin/admin.lua",
-
-
-    "bank/bank.lua",
-
 
     "hardware/chest.lua",
     "hardware/me.lua",
-
 
     "system/init.lua"
 
 }
 
 
-
 --------------------------------------------------
--- Создать директории
+-- Создать папку
 --------------------------------------------------
 
-local function makeDirectory(path)
+local function makeDir(path)
 
     local dir =
         filesystem.path(path)
-
 
     if dir
     and dir ~= ""
@@ -101,51 +83,35 @@ end
 -- Скачать файл
 --------------------------------------------------
 
-local function download(file)
+local function download(path)
+
+    print("Downloading "..path)
+
+    makeDir(path)
 
 
     local url =
-        repo .. file
+        repo .. path
 
 
-    local target =
-        installPath .. file
-
-
-    makeDirectory(target)
-
-
-    print(
-        "Downloading " .. file
-    )
+    local command =
+        "wget -f " ..
+        url ..
+        " " ..
+        path
 
 
     local result =
-        shell.execute(
-
-            "wget",
-
-            "-f",
-
-            url,
-
-            target
-
-        )
+        shell.execute(command)
 
 
     if not result then
 
         print(
-            "FAILED: " .. file
+            "FAILED: "..path
         )
 
-        return false
-
     end
-
-
-    return true
 
 end
 
@@ -156,110 +122,43 @@ end
 --------------------------------------------------
 
 print("")
-print("BlackJack installer")
-print("-------------------")
-
-
-if not filesystem.exists(installPath) then
-
-    filesystem.makeDirectory(
-        installPath
-    )
-
-end
-
-
-
-local failed = 0
+print("======================")
+print(" BlackJack Installer ")
+print("======================")
+print("")
 
 
 for _, file in ipairs(files) do
 
-
-    if not download(file) then
-
-        failed = failed + 1
-
-    end
-
+    download(file)
 
 end
-
-
-
---------------------------------------------------
--- Результат
---------------------------------------------------
-
-print("")
-
-
-if failed > 0 then
-
-
-    print(
-        "Installation failed!"
-    )
-
-
-    print(
-        "Missing files: "
-        .. failed
-    )
-
-
-    return
-
-
-end
-
-
-
---------------------------------------------------
--- Создать запуск
---------------------------------------------------
-
-local launcher =
-    "/home/blackjack.lua"
-
-
-
-local file =
-    io.open(
-        launcher,
-        "w"
-    )
-
-
-if file then
-
-
-    file:write(
-
-[[
-local shell = require("shell")
-
-shell.execute(
-    "cd /BlackJack"
-)
-
-shell.execute(
-    "lua main.lua"
-)
-]]
-
-    )
-
-
-    file:close()
-
-
-end
-
 
 
 print("")
 print("BlackJack installed!")
 print("")
-print("Run:")
-print("lua /home/blackjack.lua")
+
+
+--------------------------------------------------
+-- Запуск
+--------------------------------------------------
+
+if filesystem.exists(
+    "/home/blackjack.lua"
+)
+then
+
+    print("Starting...")
+
+    shell.execute(
+        "lua /home/blackjack.lua"
+    )
+
+else
+
+    print(
+        "Launcher not found"
+    )
+
+end
