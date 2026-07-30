@@ -336,11 +336,10 @@ function gui.start()
     while true do
 
 
-        local e,_,_,x,y =
+        local _, address, x, y, button, player =
             event.pull(
                 "touch"
             )
-
 
 
         if x and y then
