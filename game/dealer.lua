@@ -7,25 +7,33 @@ local cards = require("game.cards")
 
 local dealer = {}
 
+dealer.__index = dealer
+
+
 --------------------------------------------------
 -- Создать дилера
 --------------------------------------------------
 
 function dealer.new()
 
-    return {
+    local self =
+        setmetatable({}, dealer)
 
-        hand = {},
 
-        standing = false,
+    self.hand = {}
 
-        blackjack = false,
+    self.standing = false
 
-        bust = false
+    self.blackjack = false
 
-    }
+    self.bust = false
+
+
+    return self
 
 end
+
+
 
 --------------------------------------------------
 -- Очистить
@@ -43,6 +51,8 @@ function dealer.reset(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Взять карту
 --------------------------------------------------
@@ -50,27 +60,35 @@ end
 function dealer.hit(self, card)
 
     if not card then
-        return
+
+        return false
+
     end
 
 
     table.insert(
-
         self.hand,
-
         card
-
     )
 
 
     self.blackjack =
-        cards.isBlackjack(self.hand)
+        cards.isBlackjack(
+            self.hand
+        )
 
 
     self.bust =
-        cards.isBust(self.hand)
+        cards.isBust(
+            self.hand
+        )
+
+
+    return true
 
 end
+
+
 
 --------------------------------------------------
 -- Очки
@@ -78,9 +96,13 @@ end
 
 function dealer.points(self)
 
-    return cards.getValue(self.hand)
+    return cards.getValue(
+        self.hand
+    )
 
 end
+
+
 
 --------------------------------------------------
 -- Количество карт
@@ -92,6 +114,8 @@ function dealer.cardCount(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Последняя карта
 --------------------------------------------------
@@ -101,6 +125,8 @@ function dealer.lastCard(self)
     return self.hand[#self.hand]
 
 end
+
+
 
 --------------------------------------------------
 -- Открытая карта
@@ -112,6 +138,8 @@ function dealer.openCard(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Закрытая карта
 --------------------------------------------------
@@ -122,6 +150,8 @@ function dealer.hiddenCard(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Видимая рука
 --------------------------------------------------
@@ -130,21 +160,22 @@ function dealer.visibleHand(self)
 
     local result = {}
 
+
     for i = 2, #self.hand do
 
         table.insert(
-
             result,
-
             self.hand[i]
-
         )
 
     end
 
+
     return result
 
 end
+
+
 
 --------------------------------------------------
 -- Стоять
@@ -156,52 +187,60 @@ function dealer.stand(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Ход дилера
 --------------------------------------------------
 
 function dealer.play(self, deck)
 
+
     while dealer.mustHit(self) do
+
 
         local card =
             deck.draw()
 
+
         if not card then
+
             break
+
         end
 
-        dealer.hit(
 
-            self,
-
-            card
-
-        )
+        self:hit(card)
 
 
     end
 
 
-    dealer.stand(self)
+
+    self:stand()
+
 
 end
 
+
+
 --------------------------------------------------
--- Нужно ли брать
+-- Нужно ли брать карту
 --------------------------------------------------
 
 function dealer.mustHit(self)
 
     return
 
-        dealer.points(self) < 17
+        self:points() < 17
 
         and
 
         not self.bust
 
 end
+
+
 
 --------------------------------------------------
 -- Закончил ли ход
@@ -213,6 +252,8 @@ function dealer.isDone(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Перебор
 --------------------------------------------------
@@ -222,6 +263,8 @@ function dealer.isBust(self)
     return self.bust
 
 end
+
+
 
 --------------------------------------------------
 -- Blackjack
@@ -233,6 +276,8 @@ function dealer.isBlackjack(self)
 
 end
 
+
+
 --------------------------------------------------
 -- Стоит
 --------------------------------------------------
@@ -242,6 +287,8 @@ function dealer.isStanding(self)
     return self.standing
 
 end
+
+
 
 --------------------------------------------------
 
