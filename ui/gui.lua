@@ -37,7 +37,7 @@ gui.buttons = {}
 
 
 --------------------------------------------------
--- Очистка кнопок
+-- Кнопки
 --------------------------------------------------
 
 function gui.clearButtons()
@@ -48,33 +48,30 @@ end
 
 
 
---------------------------------------------------
--- Добавить кнопку
---------------------------------------------------
-
 function gui.addButton(button)
 
-    table.insert(
-        gui.buttons,
-        button
-    )
+    if button then
+
+        table.insert(
+            gui.buttons,
+            button
+        )
+
+    end
 
 end
 
 
 
 --------------------------------------------------
--- Главное меню
+-- Меню
 --------------------------------------------------
 
 function gui.drawMenu()
 
-
     renderer.clear()
 
-
     gui.clearButtons()
-
 
 
     renderer.center(
@@ -99,8 +96,8 @@ function gui.drawMenu()
             18,
             3,
             "PLAY",
-            function()
 
+            function()
 
                 controller.start(
                     gui.playerName
@@ -109,45 +106,13 @@ function gui.drawMenu()
 
                 gui.screen = "game"
 
-
                 gui.draw()
-
 
             end
         )
 
 
     gui.addButton(play)
-
-
-
-    if admin
-    and admin.isAdmin
-    and admin.isAdmin(gui.playerName)
-    then
-
-
-        local adminButton =
-            widgets.button(
-                10,
-                13,
-                18,
-                3,
-                "ADMIN",
-                function()
-
-                    gui.screen = "admin"
-
-                    gui.draw()
-
-                end
-            )
-
-
-        gui.addButton(adminButton)
-
-
-    end
 
 
 
@@ -163,7 +128,7 @@ end
 
 
 --------------------------------------------------
--- Игровой стол
+-- Игра
 --------------------------------------------------
 
 function gui.drawGame()
@@ -172,11 +137,10 @@ function gui.drawGame()
     renderer.clear()
 
 
-    tableView.draw()
-
-
-
     gui.clearButtons()
+
+
+    tableView.draw()
 
 
 
@@ -184,45 +148,30 @@ function gui.drawGame()
 
         hit = function()
 
-
             controller.hit()
 
-
             gui.draw()
-
 
         end,
 
 
         stand = function()
 
-
             controller.stand()
 
-
             gui.draw()
-
 
         end,
 
 
         double = function()
 
-
-            -- пока отключено
-
-
         end,
 
 
         split = function()
 
-
-            -- пока отключено
-
-
         end
-
 
     })
 
@@ -233,97 +182,59 @@ function gui.drawGame()
 
 
     renderer.center(
-
         2,
-
         "BLACKJACK TABLE",
-
         theme.colors.gold
-
     )
 
 
 
-    --------------------------------------------------
-    -- Дилер
-    --------------------------------------------------
-
     renderer.text(
-
         3,
-
         4,
-
         "DEALER: "
         ..
         tostring(
             controller.dealerPoints()
         )
-
     )
 
 
 
     cardRenderer.drawDealer(
-
         controller.dealerCards(),
-
         3,
-
         5,
-
         not controller.finished()
-
     )
 
 
 
-
-    --------------------------------------------------
-    -- Игрок
-    --------------------------------------------------
-
     renderer.text(
-
         3,
-
         13,
-
         "PLAYER: "
         ..
         tostring(
             controller.playerPoints()
         )
-
     )
 
 
 
     cardRenderer.drawHand(
-
         controller.playerCards(),
-
         3,
-
         14
-
     )
 
 
-
-
-
-    --------------------------------------------------
-    -- Результат
-    --------------------------------------------------
 
     if controller.finished() then
 
 
         renderer.center(
-
             18,
-
             "RESULT: "
             ..
             tostring(
@@ -331,12 +242,9 @@ function gui.drawGame()
             ),
 
             theme.colors.gold
-
         )
 
-
     end
-
 
 
 end
@@ -344,7 +252,7 @@ end
 
 
 --------------------------------------------------
--- Админ меню
+-- Админ
 --------------------------------------------------
 
 function gui.drawAdmin()
@@ -352,74 +260,15 @@ function gui.drawAdmin()
 
     renderer.clear()
 
-
     gui.clearButtons()
 
 
 
     renderer.center(
-
         3,
-
         "ADMIN PANEL",
-
         theme.colors.gold
-
     )
-
-
-
-    renderer.text(
-
-        5,
-
-        6,
-
-        "ITEM MANAGEMENT"
-
-    )
-
-
-
-
-    local back =
-        widgets.button(
-
-            10,
-
-            15,
-
-            18,
-
-            3,
-
-            "BACK",
-
-            function()
-
-
-                gui.screen = "menu"
-
-
-                gui.draw()
-
-
-            end
-
-        )
-
-
-
-    gui.addButton(back)
-
-
-
-
-    for _, button in ipairs(gui.buttons) do
-
-        button.draw()
-
-    end
 
 
 end
@@ -427,7 +276,7 @@ end
 
 
 --------------------------------------------------
--- Отрисовка
+-- Рисование
 --------------------------------------------------
 
 function gui.draw()
@@ -435,21 +284,17 @@ function gui.draw()
 
     if gui.screen == "menu" then
 
-
         gui.drawMenu()
 
 
     elseif gui.screen == "game" then
-
 
         gui.drawGame()
 
 
     elseif gui.screen == "admin" then
 
-
         gui.drawAdmin()
-
 
     end
 
@@ -459,17 +304,27 @@ end
 
 
 --------------------------------------------------
--- Обработка касания
+-- TOUCH
 --------------------------------------------------
 
-function gui.touch(x, y)
+function gui.touch(x,y)
+
+
+    print(
+        "TOUCH:",
+        x,
+        y
+    )
 
 
 
     if gui.screen == "game" then
 
 
-        if controlPanel.touch(x,y) then
+        if controlPanel.touch(
+            x,
+            y
+        ) then
 
             return true
 
@@ -480,11 +335,13 @@ function gui.touch(x, y)
 
 
 
-
     for _, button in ipairs(gui.buttons) do
 
 
-        if button.click(x,y) then
+        if button.click(
+            x,
+            y
+        ) then
 
 
             return true
@@ -504,7 +361,7 @@ end
 
 
 --------------------------------------------------
--- Запуск GUI
+-- Запуск
 --------------------------------------------------
 
 function gui.start()
@@ -517,7 +374,7 @@ function gui.start()
     while true do
 
 
-        local _, _, _, x, y =
+        local _, _, _, x, y, button =
             event.pull(
                 "touch"
             )
@@ -536,7 +393,5 @@ function gui.start()
 end
 
 
-
---------------------------------------------------
 
 return gui
