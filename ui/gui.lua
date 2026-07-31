@@ -1135,7 +1135,19 @@ function gui.init()
 
 end
 
+--------------------------------------------------
+-- START
+--------------------------------------------------
 
+function gui.start()
+
+    gui.screen = "menu"
+
+    gui.touchActivity()
+
+    gui.draw()
+
+end
 
 
 return gui
