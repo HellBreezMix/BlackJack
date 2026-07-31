@@ -9,49 +9,151 @@ local payout = require("game.payout")
 local controller = {}
 
 
+
 --------------------------------------------------
--- Игрок
+-- STATE
 --------------------------------------------------
 
 controller.playerName = "Player"
 
+controller.state = {
+
+    dealerCards = {},
+    playerCards = {},
+
+    dealerPoints = 0,
+    playerPoints = 0,
+
+    result = nil,
+    finished = false
+
+}
+
 
 
 --------------------------------------------------
--- Начать игру
+-- UPDATE STATE
+--------------------------------------------------
+
+local function updateState()
+
+
+    controller.state.playerCards =
+        game.getPlayerHand() or {}
+
+
+
+    controller.state.dealerCards =
+        game.getDealerHand() or {}
+
+
+
+    controller.state.playerPoints =
+        game.getPlayerPoints() or 0
+
+
+
+    controller.state.dealerPoints =
+        game.getDealerPoints() or 0
+
+
+
+    controller.state.finished =
+        game.isFinished()
+
+
+
+    controller.state.result =
+        game.getResult()
+
+
+
+end
+
+
+
+
+
+--------------------------------------------------
+-- GET STATE
+--------------------------------------------------
+
+function controller.getState()
+
+
+    updateState()
+
+
+    return controller.state
+
+
+end
+
+
+
+
+
+--------------------------------------------------
+-- START GAME
 --------------------------------------------------
 
 function controller.start(playerName)
+
 
     controller.playerName =
         playerName or "Player"
 
 
+
     game.new(
+
         controller.playerName
+
     )
 
 
     game.deal()
 
+
+
+    updateState()
+
+
+
+    return true
+
+
 end
 
 
 
+
+
 --------------------------------------------------
--- Новая партия
+-- NEW ROUND
 --------------------------------------------------
 
 function controller.newGame()
 
+
     game.new(
+
         controller.playerName
+
     )
 
 
     game.deal()
 
+
+
+    updateState()
+
+
+
 end
+
+
 
 
 
@@ -62,6 +164,7 @@ end
 function controller.hit()
 
 
+
     if game.isFinished() then
 
         return false
@@ -69,12 +172,21 @@ function controller.hit()
     end
 
 
+
     game.playerHit()
+
+
+
+    updateState()
+
 
 
     return true
 
+
 end
+
+
 
 
 
@@ -85,6 +197,7 @@ end
 function controller.stand()
 
 
+
     if game.isFinished() then
 
         return false
@@ -92,12 +205,21 @@ function controller.stand()
     end
 
 
+
     game.playerStand()
+
+
+
+    updateState()
+
 
 
     return true
 
+
 end
+
+
 
 
 
@@ -108,6 +230,7 @@ end
 function controller.double()
 
 
+
     if game.isFinished() then
 
         return false
@@ -115,89 +238,115 @@ function controller.double()
     end
 
 
-    return game.playerDouble()
+
+    local result =
+        game.playerDouble()
+
+
+
+    updateState()
+
+
+
+    return result
+
 
 end
 
 
 
+
+
 --------------------------------------------------
--- Карты игрока
+-- PLAYER CARDS
 --------------------------------------------------
 
 function controller.playerCards()
 
+
     return game.getPlayerHand()
+
 
 end
 
 
 
+
+
 --------------------------------------------------
--- Карты дилера
+-- DEALER CARDS
 --------------------------------------------------
 
 function controller.dealerCards()
 
+
     return game.getDealerHand()
+
 
 end
 
 
 
+
+
 --------------------------------------------------
--- Очки игрока
+-- POINTS
 --------------------------------------------------
 
 function controller.playerPoints()
 
+
     return game.getPlayerPoints()
+
 
 end
 
 
-
---------------------------------------------------
--- Очки дилера
---------------------------------------------------
 
 function controller.dealerPoints()
 
+
     return game.getDealerPoints()
+
 
 end
 
 
 
+
+
 --------------------------------------------------
--- Можно играть?
+-- STATUS
 --------------------------------------------------
 
 function controller.canPlay()
 
+
     return not game.isFinished()
+
 
 end
 
 
-
---------------------------------------------------
--- Закончена ли игра
---------------------------------------------------
 
 function controller.finished()
 
+
     return game.isFinished()
+
 
 end
 
 
 
+
+
 --------------------------------------------------
--- Результат
+-- RESULT
 --------------------------------------------------
 
 function controller.result()
+
 
 
     local result =
@@ -220,11 +369,14 @@ end
 
 
 
+
+
 --------------------------------------------------
--- Выплата
+-- PAYOUT
 --------------------------------------------------
 
 function controller.calculateWin(bet)
+
 
 
     return payout.calculate(
@@ -240,18 +392,22 @@ end
 
 
 
+
+
 --------------------------------------------------
--- Получить игру
+-- RAW GAME
 --------------------------------------------------
 
 function controller.getGame()
 
+
     return game
+
 
 end
 
 
 
---------------------------------------------------
+
 
 return controller
