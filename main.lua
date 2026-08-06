@@ -136,10 +136,25 @@ function Players.get(name)
     return p
 end
 
+local function roundMoney(v)
+    v = tonumber(v) or 0
+    -- до 4 знаков, убираем float-хвосты (0.099999999)
+    return math.floor(v * 10000 + 0.5) / 10000
+end
+
+local function fmtMoney(v)
+    v = roundMoney(v)
+    if math.abs(v - math.floor(v + 1e-9)) < 1e-9 then
+        return tostring(math.floor(v + 1e-9))
+    end
+    local s = string.format("%.4f", v):gsub("0+$", ""):gsub("%.$", "")
+    return s
+end
+
 function Players.addBalance(name, amount)
     local p = Players.get(name)
-    p.balance = math.max(0, (p.balance or 0) + amount)
-    if amount > 0 then p.totalWon = (p.totalWon or 0) + amount end
+    p.balance = math.max(0, roundMoney((p.balance or 0) + (tonumber(amount) or 0)))
+    if amount and amount > 0 then p.totalWon = roundMoney((p.totalWon or 0) + amount) end
     Players.save()
     return p.balance
 end
@@ -466,7 +481,7 @@ local UI = {
     sessionLeft = 120, timerId = nil,
     betAmount = config.bet.default,
     buttons = {}, message = nil, messageColor = config.colors.text, messageUntil = 0,
-    adminTab = "bets", logScroll = 0,
+    adminTab = "bets", logScroll = 0, pendingAuth = false, alert = nil,
     editItem = { name = nil, label = "", price = "1", mode = "add", target = "buy" },
     input = { active = false, title = "", value = "", callback = nil, maxLen = 40 }
 }
@@ -684,13 +699,18 @@ function UI.drawSidebar()
     fill(sx, 2, sw, UI.h - 1, config.colors.panel)
 
     if not UI.authorized then
-        UI.addButton(sx + 1, 3, sw - 2, 3, "АВТОРИЗАЦИЯ", config.colors.buttonGreen, 0xFFFFFF, function() end)
-        text(sx + 2, 7, "Войдите для игры", config.colors.textDark, config.colors.panel)
+        UI.addButton(sx + 1, 3, sw - 2, 4, "АВТОРИЗАЦИЯ", config.colors.buttonGreen, 0xFFFFFF, function()
+            UI.pendingAuth = true
+            UI.setMessage("Коснитесь экрана своим ником", config.colors.textGold, 5)
+            UI.draw()
+        end)
+        text(sx + 2, 8, "Нажмите кнопку,", config.colors.textDark, config.colors.panel)
+        text(sx + 2, 9, "затем коснитесь", config.colors.textDark, config.colors.panel)
     else
         UI.addButton(sx + 1, 3, sw - 2, 3, "ВЫХОД", config.colors.buttonRed, 0xFFFFFF, function() UI.logout() end)
         text(sx + 2, 7, UI.playerName or "?", config.colors.textGreen, config.colors.panel)
         local p = Players.get(UI.playerName)
-        text(sx + 2, 8, string.format("%s %s", tostring(p.balance or 0), config.currency.symbol), config.colors.textGold, config.colors.panel)
+        text(sx + 2, 8, string.format("%s %s", fmtMoney(p.balance or 0), config.currency.symbol), config.colors.textGold, config.colors.panel)
         text(sx + 2, 9, "Выход через: " .. UI.sessionLeft .. "с", config.colors.textDark, config.colors.panel)
 
         UI.addButton(sx + 1, 11, sw - 2, 3, "ПОПОЛНИТЬ СЧЁТ", config.colors.buttonGreen, 0xFFFFFF, function() UI.doDeposit() end)
@@ -702,7 +722,7 @@ function UI.drawSidebar()
         end
     end
 
-    local y = UI.authorized and (config.admins[UI.playerName] and 19 or 15) or 10
+    local y = UI.authorized and (config.admins[UI.playerName] and 19 or 15) or 12
     if y > UI.h - 10 then y = UI.h - 10 end
 
     text(sx + 1, y, "СКУПКА ПРЕДМЕТОВ:", config.colors.textBlue, config.colors.panel); y = y + 1
@@ -737,16 +757,52 @@ function UI.drawSidebar()
 end
 
 --------------------------------------------------
+local function drawTree(x, y)
+    -- простая ёлка / дерево пикселями
+    local green = 0x2E8B57
+    local brown = 0x8B5A2B
+    local leaf = {
+        "   ▲   ",
+        "  ▲▲▲  ",
+        " ▲▲▲▲▲ ",
+        "▲▲▲▲▲▲▲",
+    }
+    for i, line in ipairs(leaf) do
+        text(x, y + i - 1, line, green, config.colors.background)
+    end
+    text(x + 2, y + 4, " ║║", brown, config.colors.background)
+    text(x + 2, y + 5, " ║║", brown, config.colors.background)
+end
+
+function UI.drawDecor(mw)
+    -- дерево слева вверху (не сдвигается)
+    drawTree(3, 3)
+    -- зеркально справа от центральной зоны, если есть место
+    if mw > 50 then
+        drawTree(mw - 12, 3)
+    end
+end
+
+function UI.drawRules(mw, startY)
+    local y = startY or 22
+    centerText(y, "ПРАВИЛА", config.colors.textBlue, config.colors.background, mw); y = y + 1
+    centerText(y, "Цель: набрать больше дилера, не больше 21", config.colors.text, config.colors.background, mw); y = y + 1
+    centerText(y, "Победа (обычная): 1:1  |  Blackjack (A+10): 3:2", config.colors.textGold, config.colors.background, mw); y = y + 1
+    centerText(y, "Ничья: ставка возвращается на баланс", config.colors.text, config.colors.background, mw); y = y + 1
+    centerText(y, "Перебор (>21): проигрыш", config.colors.textDark, config.colors.background, mw)
+end
+
 function UI.drawWelcomeArt(mw)
+    UI.drawDecor(mw)
     local cx = math.floor(mw / 2)
-    fill(cx - 18, 6, 36, 14, config.colors.tableGreen or 0x0B5C3A)
-    centerText(7, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.tableGreen or 0x0B5C3A, mw)
-    centerText(8, "♦              ♣", 0xCCCCCC, config.colors.tableGreen or 0x0B5C3A, mw)
-    drawCard(cx - 14, 10, { rank = "A", suit = "♠" }, false)
-    drawCard(cx - 4,  10, { rank = "K", suit = "♥" }, false)
-    drawCard(cx + 6,  10, { rank = "Q", suit = "♦" }, false)
-    centerText(19, "Касайся экрана для входа", config.colors.text, config.colors.background, mw)
-    centerText(20, "Авторизация по нику игрока", config.colors.textDark, config.colors.background, mw)
+    fill(cx - 18, 8, 36, 12, config.colors.tableGreen or 0x0B5C3A)
+    centerText(9, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.tableGreen or 0x0B5C3A, mw)
+    centerText(10, "♦              ♣", 0xCCCCCC, config.colors.tableGreen or 0x0B5C3A, mw)
+    drawCard(cx - 14, 12, { rank = "A", suit = "♠" }, false)
+    drawCard(cx - 4,  12, { rank = "K", suit = "♥" }, false)
+    drawCard(cx + 6,  12, { rank = "Q", suit = "♦" }, false)
+    UI.drawRules(mw, 22)
+    centerText(28, "Нажмите «АВТОРИЗАЦИЯ» справа", config.colors.text, config.colors.background, mw)
 end
 
 function UI.drawMainArea()
@@ -756,22 +812,31 @@ function UI.drawMainArea()
 
     if UI.screen == "main" then
         if UI.authorized then
-            centerText(4, "BLACKJACK", config.colors.textGold, config.colors.background, mw)
-            centerText(6, "Ваш баланс: " .. Players.get(UI.playerName).balance .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
-            centerText(9, "СТАВКА", config.colors.textBlue, config.colors.background, mw)
-            centerText(11, tostring(UI.betAmount) .. " " .. config.currency.symbol, config.colors.textGold, config.colors.background, mw)
+            UI.drawDecor(mw)
             local cx = math.floor(mw / 2)
-            UI.addButton(cx - 12, 13, 5, 3, "◄", config.colors.button, config.colors.text, function()
-                UI.betAmount = math.max(Settings.data.minBet, UI.betAmount - 1); UI.draw() end)
-            UI.addButton(cx - 6, 13, 5, 3, "◄◄", config.colors.button, config.colors.text, function()
-                UI.betAmount = math.max(Settings.data.minBet, UI.betAmount - 10); UI.draw() end)
-            UI.addButton(cx + 2, 13, 5, 3, "►►", config.colors.button, config.colors.text, function()
-                UI.betAmount = math.min(Settings.data.maxBet, UI.betAmount + 10); UI.draw() end)
-            UI.addButton(cx + 8, 13, 5, 3, "►", config.colors.button, config.colors.text, function()
-                UI.betAmount = math.min(Settings.data.maxBet, UI.betAmount + 1); UI.draw() end)
-            text(cx - 10, 17, "Мин: " .. Settings.data.minBet, config.colors.textDark, config.colors.background)
-            text(cx + 4, 17, "Макс: " .. Settings.data.maxBet, config.colors.textDark, config.colors.background)
-            UI.addButton(cx - 10, 20, 20, 3, "ИГРАТЬ", config.colors.buttonGreen, 0xFFFFFF, function() UI.startGame() end)
+            centerText(10, "BLACKJACK", config.colors.textGold, config.colors.background, mw)
+            local bal = fmtMoney(Players.get(UI.playerName).balance)
+            centerText(12, "Ваш баланс: " .. bal .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
+
+            centerText(15, "СТАВКА (нажми чтобы ввести)", config.colors.textBlue, config.colors.background, mw)
+            drawBox(cx - 10, 16, 20, 3, config.colors.textGold, config.colors.panelLight)
+            text(cx - 8, 17, tostring(UI.betAmount) .. " " .. config.currency.symbol, config.colors.textGold, config.colors.panelLight)
+            UI.addButton(cx - 10, 16, 20, 3, "", 0x000000, 0x000000, function()
+                UI.openInput("Ставка (целое число)", tostring(UI.betAmount), function(val)
+                    if not val then UI.draw(); return end
+                    local n = tonumber(val)
+                    if not n then UI.setMessage("Только число", config.colors.textRed, 3); UI.draw(); return end
+                    n = math.floor(n + 1e-9)
+                    if n < Settings.data.minBet or n > Settings.data.maxBet then
+                        UI.setMessage("Лимит " .. Settings.data.minBet .. "–" .. Settings.data.maxBet, config.colors.textRed, 3)
+                        UI.draw(); return
+                    end
+                    UI.betAmount = n
+                    UI.draw()
+                end, 8)
+            end)
+            text(cx - 10, 20, "Мин: " .. Settings.data.minBet .. "   Макс: " .. Settings.data.maxBet, config.colors.textDark, config.colors.background)
+            UI.addButton(cx - 10, 22, 20, 3, "ИГРАТЬ", config.colors.buttonGreen, 0xFFFFFF, function() UI.startGame() end)
         else
             UI.drawWelcomeArt(mw)
         end
@@ -1037,6 +1102,7 @@ function UI.draw()
     gpu.setBackground(config.colors.background)
     gpu.fill(1, 1, UI.w, UI.h, " ")
     UI.drawHeader(); UI.drawSidebar(); UI.drawMainArea()
+    if UI.alert then UI.drawAlert() end
     for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
 end
 
@@ -1045,6 +1111,7 @@ end
 --------------------------------------------------
 function UI.login(name)
     if not name or name == "" then return end
+    UI.pendingAuth = false
     UI.playerName = name; UI.authorized = true; UI.sessionLeft = 120
     UI.betAmount = math.max(Settings.data.minBet, math.min(Settings.data.maxBet, config.bet.default))
     UI.screen = "main"; Players.get(name)
@@ -1089,12 +1156,39 @@ function UI.doDeposit()
     UI.draw()
 end
 
+function UI.showAlert(title, callback)
+    UI.alert = { title = title or "Сообщение", cb = callback }
+    UI.draw()
+end
+
+function UI.drawAlert()
+    if not UI.alert then return end
+    local mw = UI.w - config.ui.sidebarWidth
+    local boxW, boxH = 36, 9
+    local bx = math.floor((mw - boxW) / 2) + 1
+    local by = math.floor((UI.h - boxH) / 2)
+    fill(1, 2, mw, UI.h - 1, 0x050505)
+    drawBox(bx, by, boxW, boxH, config.colors.textRed, config.colors.panel)
+    centerText(by + 2, UI.alert.title, config.colors.textRed, config.colors.panel, mw)
+    UI.addButton(bx + math.floor((boxW - 12) / 2), by + 5, 12, 3, "ОК", config.colors.buttonGreen, 0xFFFFFF, function()
+        local cb = UI.alert and UI.alert.cb
+        UI.alert = nil
+        if cb then cb() end
+        UI.draw()
+    end)
+end
+
 function UI.startGame()
     if not UI.authorized then return end
     local p = Players.get(UI.playerName)
-    if (p.balance or 0) < UI.betAmount then UI.setMessage("Недостаточно средств", config.colors.textRed, 3); UI.draw(); return end
+    if roundMoney(p.balance or 0) < UI.betAmount then
+        UI.showAlert("Недостаточно средств")
+        return
+    end
     if UI.betAmount < Settings.data.minBet or UI.betAmount > Settings.data.maxBet then
-        UI.setMessage("Ставка вне лимитов", config.colors.textRed, 3); UI.draw(); return end
+        UI.showAlert("Ставка вне лимитов " .. Settings.data.minBet .. "–" .. Settings.data.maxBet)
+        return
+    end
     Players.addBalance(UI.playerName, -UI.betAmount)
     Players.addPlayed(UI.playerName, UI.betAmount)
     Game.reset(); Game.bet = UI.betAmount; Game.deal()
@@ -1174,9 +1268,18 @@ local function boot()
             UI.handleKey(ev[3], ev[4])
         elseif e == "touch" then
             local x, y, _, player = ev[3], ev[4], ev[5], ev[6]
-            if UI.input.active then UI.checkButtons(x, y)
+            if UI.alert then
+                UI.checkButtons(x, y)
+            elseif UI.input.active then
+                UI.checkButtons(x, y)
             elseif not UI.authorized then
-                if player and player ~= "" then UI.login(player) end
+                -- сначала кнопки (АВТОРИЗАЦИЯ)
+                UI.checkButtons(x, y)
+                -- логин только после нажатия АВТОРИЗАЦИЯ
+                if UI.pendingAuth and player and player ~= "" then
+                    UI.pendingAuth = false
+                    UI.login(player)
+                end
             else
                 UI.sessionLeft = 120; UI.checkButtons(x, y)
             end
