@@ -894,6 +894,8 @@ local function ensureFeltCache()
     return false
 end
 
+local _lastFeltPaint = 0
+
 local function drawScreen()
     UI.clearButtons()
 
@@ -915,8 +917,8 @@ local function drawScreen()
         pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
         if useBuf then pcall(gpu.setActiveBuffer, _screenBuf) end
     else
-        -- узор всегда рисуем (иначе стол «пустой»)
-        paintFeltToActive(UI.w, UI.h)
+        -- без буфера: solid (без узора) — убирает мигание
+        fill(1, 1, UI.w, UI.h, FELT_BASE)
     end
 
     local mw = UI.w - (config.ui.sidebarWidth or 28)
@@ -1050,7 +1052,7 @@ end
 
 local function drawShoe(mw)
     local sx = math.max(3, mw - CARD_W - 3)
-    local sy = 5
+    local sy = 6
     -- стопка колоды
     drawCard(sx + 1, sy + 1, { rank = "A", suit = "♠" }, true)
     drawCard(sx, sy, { rank = "A", suit = "♠" }, true)
@@ -1059,13 +1061,12 @@ local function drawShoe(mw)
 end
 
 local function handSlotPos(mw, who, index)
-    -- index = 1-based position of card in hand
     local n = math.max(1, index)
-    local total = n
-    local hw = (total - 1) * CARD_STEP + CARD_W
+    local hw = (n - 1) * CARD_STEP + CARD_W
     local hx = math.max(3, math.floor((mw - hw) / 2) + 1)
     local x = hx + (index - 1) * CARD_STEP
-    local y = (who == "player") and 18 or 5
+    -- дилер чуть ниже центра верха, игрок ниже
+    local y = (who == "player") and 22 or 8
     return x, y
 end
 
@@ -1224,29 +1225,26 @@ function UI.drawRules(mw, startY)
 end
 
 function UI.drawWelcomeArt(mw)
-    -- зона внутри окантовки: x=3..mw-2, y=4..h-2
-    local minX, maxX = 3, mw - CARD_W - 1
-    local minY, maxY = 4, UI.h - CARD_H - 1
-    if maxX < minX + 5 then maxX = minX + 5 end
-    if maxY < minY + 5 then maxY = minY + 5 end
+    local minX, maxX = 4, mw - CARD_W - 2
+    local minY, maxY = 4, UI.h - CARD_H - 2
 
-    -- хаотичный разброс, центр (под правила) относительно свободен
+    -- разброс по столу, не только у стен; центр под правила свободнее
     local scatter = {
-        { minX, minY, "A", "♠", false },
-        { minX + 16, minY, "K", "♦", false },
-        { minX + 32, minY + 1, "7", "♥", true },
-        { maxX - 2, minY, "3", "♣", false },
-        { maxX, minY + 12, "8", "♠", false },
-        { maxX, minY + 24, "6", "♣", false },
-        { maxX - 1, maxY, "5", "♦", true },
-        { minX, minY + 12, "Q", "♥", false },
-        { minX + 1, minY + 24, "9", "♦", false },
-        { minX, maxY, "K", "♠", false },
-        { minX + 18, maxY, "2", "♣", true },
-        { minX + 36, maxY, "A", "♥", false },
-        { minX + 20, minY + 18, "10", "♠", true },
-        { maxX - 18, minY + 16, "4", "♥", true },
-        { minX + 28, minY + 10, "J", "♠", true },
+        {  8,  5, "A", "♠", false },
+        { 26,  4, "K", "♦", false },
+        { 44,  6, "7", "♥", true  },
+        { maxX - 4, 5, "3", "♣", false },
+        { maxX - 2, 16, "8", "♠", false },
+        { maxX - 6, 28, "6", "♣", false },
+        { 10, 16, "Q", "♥", false },
+        {  6, 28, "9", "♦", false },
+        { 14, maxY - 1, "K", "♠", false },
+        { 32, maxY, "2", "♣", true  },
+        { 50, maxY - 2, "A", "♥", false },
+        { 22, 20, "10", "♠", true },
+        { 40, 18, "4", "♥", true },
+        { 30, 12, "J", "♠", true },
+        { 18,  8, "5", "♦", false },
     }
     for _, c in ipairs(scatter) do
         local x, y = c[1], c[2]
@@ -1259,7 +1257,6 @@ function UI.drawWelcomeArt(mw)
         end
     end
 
-    -- правила поверх, с лёгкой подложкой только под текст (не огромное окно)
     local winX = tonumber(Settings.data.winPayout) or 2.0
     local bjX  = tonumber(Settings.data.bjPayout) or 2.5
     local winStr = (winX == math.floor(winX)) and tostring(math.floor(winX)) or string.format("%.1f", winX)
@@ -1274,17 +1271,15 @@ function UI.drawWelcomeArt(mw)
         { "Перебор (>21): проигрыш", config.colors.textDark },
         { "Нажмите кнопку для авторизации", config.colors.text },
     }
-    local startY = 11
-    local pad = 2
     local maxLen = 0
     for _, L in ipairs(lines) do
         local ln = unicode.len(L[1])
         if ln > maxLen then maxLen = ln end
     end
-    local boxW = maxLen + pad * 2
+    local boxW = maxLen + 4
     local boxH = #lines + 2
     local bx = math.floor((mw - boxW) / 2) + 1
-    local by = startY
+    local by = 12
     fill(bx, by, boxW, boxH, 0x083528)
     for i, L in ipairs(lines) do
         local tx = bx + math.floor((boxW - unicode.len(L[1])) / 2)
@@ -1332,37 +1327,28 @@ function UI.drawMainArea()
             return (n - 1) * CARD_STEP + CARD_W
         end
         local function handX(n)
-            return math.max(2, math.floor((mw - handWidth(n)) / 2) + 1)
+            return math.max(3, math.floor((mw - handWidth(n)) / 2) + 1)
         end
 
-        -- легенда ценностей (левый нижний угол поля)
-        -- таблица ценностей карт (левый угол)
+        -- таблица ценностей
         local ly = UI.h - 6
         text(3, ly,     "Карта      Очки", config.colors.textBlue, config.colors.background)
         text(3, ly + 1, "2-9        номинал", config.colors.textDark, config.colors.background)
         text(3, ly + 2, "10/J/Q/K   10", config.colors.textDark, config.colors.background)
         text(3, ly + 3, "Туз (A)    1 или 11", config.colors.textDark, config.colors.background)
 
-        -- ДИЛЕР: подпись и счёт в одну строку (счёт справа)
+        -- ДИЛЕР крупно
         local dScore = hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand))
-        local dLabel = "ДИЛЕР"
-        local dLine = dLabel .. "   " .. dScore
-        centerText(3, dLine, config.colors.textGold, config.colors.background, mw)
-        -- «крупнее»: дублируем счёт рядом ярче
-        local dScoreX = math.floor((mw - unicode.len(dLine)) / 2) + 1 + unicode.len(dLabel) + 3
-        text(dScoreX, 3, dScore, config.colors.textGold, config.colors.background)
-        drawHand(handX(#Game.dealer.hand > 0 and #Game.dealer.hand or 1), 5, Game.dealer.hand, hideDealer)
+        centerText(6, "◆  ДИЛЕР  ◆", config.colors.text, config.colors.background, mw)
+        centerText(7, dScore, config.colors.textGold, config.colors.background, mw)
+        drawHand(handX(#Game.dealer.hand > 0 and #Game.dealer.hand or 1), 8, Game.dealer.hand, hideDealer)
 
-        -- ВЫ
+        -- ВЫ крупно
         local pScore = tostring(Cards.handValue(Game.player.hand))
-        local pLabel = "ВЫ"
-        local pLine = pLabel .. "   " .. pScore
-        centerText(16, pLine, config.colors.textGold, config.colors.background, mw)
-        local pScoreX = math.floor((mw - unicode.len(pLine)) / 2) + 1 + unicode.len(pLabel) + 3
-        text(pScoreX, 16, pScore, config.colors.textGold, config.colors.background)
-        drawHand(handX(#Game.player.hand > 0 and #Game.player.hand or 1), 18, Game.player.hand, false)
+        centerText(20, "◆  ВЫ  ◆", config.colors.text, config.colors.background, mw)
+        centerText(21, pScore, config.colors.textGold, config.colors.background, mw)
+        drawHand(handX(#Game.player.hand > 0 and #Game.player.hand or 1), 22, Game.player.hand, false)
 
-        -- колода и летящая карта
         if Game.state == "dealing" or Game.state == "dealer_turn" or (UI.anim and UI.anim.card) then
             drawShoe(mw)
         end
@@ -1370,9 +1356,9 @@ function UI.drawMainArea()
             drawCard(UI.anim.x, UI.anim.y, UI.anim.card, UI.anim.hidden ~= false)
         end
 
-        centerText(29, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
+        centerText(34, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
 
-        local btnY = 31
+        local btnY = 36
         local cx = math.floor(mw / 2)
         if UI.screen == "playing" and not Game.finished and Game.state == "playing" then
             UI.addButton(cx - 14, btnY, 12, 3, "ВЗЯТЬ", config.colors.buttonGreen, 0xFFFFFF, function()
@@ -1389,7 +1375,7 @@ function UI.drawMainArea()
                 end)
             end)
             UI.addButton(cx + 2, btnY, 12, 3, "СТОП", config.colors.buttonRed, 0xFFFFFF, function()
-                if Game.state ~= "playing" then return end
+                if Game.state ~= "playing" or UI.anim then return end
                 UI.startDealerAnim()
             end)
         elseif UI.screen == "playing" and Game.state == "dealing" then
@@ -1893,16 +1879,16 @@ end
 function UI.flyCard(who, card, faceDown, onDone)
     local mw = UI.w - config.ui.sidebarWidth
     local shoeX = math.max(3, mw - CARD_W - 3)
-    local shoeY = 5
+    local shoeY = 6
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 5
+    local steps = 10
     local step = 0
 
     UI.anim = {
         card = card,
-        hidden = true,  -- летит рубашкой вверх
+        hidden = true,
         x = shoeX, y = shoeY,
         who = who
     }
@@ -1910,21 +1896,21 @@ function UI.flyCard(who, card, faceDown, onDone)
     local function frame()
         step = step + 1
         local t = step / steps
-        -- ease-out
-        local e = 1 - (1 - t) * (1 - t)
+        -- smoothstep
+        local e = t * t * (3 - 2 * t)
         UI.anim.x = math.floor(shoeX + (tx - shoeX) * e + 0.5)
         UI.anim.y = math.floor(shoeY + (ty - shoeY) * e + 0.5)
         UI.anim.hidden = true
+        -- частичная отрисовка без полного clear felt — через UI.drawFast если есть
         UI.draw()
         if step < steps then
-            UI.schedule(0.07, frame)
+            UI.schedule(0.04, frame)
         else
-            -- прибытие: переворот (если лицом)
             UI.anim.x = tx
             UI.anim.y = ty
             UI.anim.hidden = faceDown and true or false
             UI.draw()
-            UI.schedule(0.12, function()
+            UI.schedule(0.1, function()
                 UI.anim = nil
                 table.insert(hand, card)
                 UI.draw()
@@ -1933,7 +1919,7 @@ function UI.flyCard(who, card, faceDown, onDone)
         end
     end
     UI.draw()
-    UI.schedule(0.05, frame)
+    UI.schedule(0.03, frame)
 end
 
 -- Анимация раздачи: игрок, дилер, игрок, дилер (с полётом)
@@ -2122,11 +2108,4 @@ local function boot()
             end
         elseif e == "interrupted" then break end
     end
-end
-
-local ok, err = pcall(boot)
-if not ok then
-    pcall(term.clear)
-    print("Ошибка BlackJack:"); print(err)
-    log("ОШИБКА", "-", tostring(err))
 end
