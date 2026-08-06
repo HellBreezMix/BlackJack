@@ -865,6 +865,8 @@ local TABLE_RAIL_DARK = 0x3D2510
 local _screenBuf = nil
 local _feltBuf = nil
 local _feltReady = false
+local _welcomeBuf = nil
+local _welcomeReady = false
 
 local function paintFeltToActive(w, h)
     fill(1, 1, w, h, FELT_BASE)
@@ -925,12 +927,12 @@ end
 
 local _lastFeltPaint = 0
 
-local function drawScreen()
-    UI.clearButtons()
+local function blit(dst, srcBuf, x, y, w, h)
+    pcall(gpu.bitblt, dst, x, y, w, h, srcBuf, x, y)
+end
 
-    local hasFelt = ensureFeltCache()
+local function withBuffer(fn)
     local useBuf = false
-
     if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
         if not _screenBuf then
             local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
@@ -940,36 +942,109 @@ local function drawScreen()
             useBuf = true
         end
     end
-
-    if hasFelt and _feltBuf then
-        local dst = useBuf and _screenBuf or 0
-        pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
-        if useBuf then pcall(gpu.setActiveBuffer, _screenBuf) end
-    else
-        -- без буфера: solid (без узора) — убирает мигание
-        fill(1, 1, UI.w, UI.h, FELT_BASE)
-    end
-
-    local mw = UI.w - (config.ui.sidebarWidth or 28)
-    drawTableRail(mw)
-
-    UI.drawHeader()
-    UI.drawSidebar()
-
-    if UI.alert then
-        UI.drawAlert()
-    elseif UI.input.active then
-        UI.drawInputModal()
-    else
-        UI.drawMainArea()
-    end
-
-    for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
-
+    fn()
     if useBuf and _screenBuf then
         pcall(gpu.setActiveBuffer, 0)
         pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
     end
+    return useBuf
+end
+
+local function ensureWelcomeCache(mw)
+    if _welcomeReady and _welcomeBuf then return true end
+    if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
+        return false
+    end
+    if not _welcomeBuf then
+        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+        if not ok or not id then return false end
+        _welcomeBuf = id
+    end
+    if not pcall(gpu.setActiveBuffer, _welcomeBuf) then return false end
+
+    -- рисуем статичную картинку главного экрана в буфер
+    if ensureFeltCache() and _feltBuf then
+        blit(_welcomeBuf, _feltBuf, 1, 1, UI.w, UI.h)
+    else
+        paintFeltToActive(UI.w, UI.h)
+    end
+    drawTableRail(mw)
+    UI.drawWelcomeArt(mw)
+    -- header line
+    fill(1, 1, UI.w, 1, config.colors.header)
+    centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
+
+    pcall(gpu.setActiveBuffer, 0)
+    _welcomeReady = true
+    return true
+end
+
+local function drawScreen()
+    UI.clearButtons()
+    local mw = UI.w - (config.ui.sidebarWidth or 28)
+
+    -- === Главный экран до авторизации: статичный кэш карт ===
+    local welcomeMode = (UI.screen == "main" and not UI.authorized
+        and not UI.alert and not UI.input.active)
+
+    if welcomeMode then
+        local hasCache = ensureWelcomeCache(mw)
+        if hasCache and _welcomeBuf then
+            -- мгновенно копируем «фото» стола — карты не перерисовываются
+            pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _welcomeBuf, 1, 1)
+        else
+            -- нет GPU-буфера: рисуем стол ОДИН раз, потом не трогаем
+            if not _welcomeReady then
+                if ensureFeltCache() and _feltBuf then
+                    pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
+                else
+                    paintFeltToActive(UI.w, UI.h)
+                end
+                drawTableRail(mw)
+                UI.drawWelcomeArt(mw)
+                fill(1, 1, UI.w, 1, config.colors.header)
+                centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
+                _welcomeReady = true
+            end
+        end
+        -- только сайдбар (кнопка авторизации и т.д.)
+        UI.drawSidebar()
+        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+        if UI.message and computer.uptime() < UI.messageUntil then
+            local barW = math.min(mw - 4, math.max(30, unicode.len(UI.message) + 4))
+            local bx = math.floor((mw - barW) / 2) + 1
+            fill(bx, UI.h - 1, barW, 1, 0x083528)
+            centerText(UI.h - 1, UI.message, UI.messageColor, 0x083528, mw)
+        end
+        return
+    end
+
+    -- сброс кэша welcome при уходе с экрана
+    -- (сам буфер оставляем — быстрый возврат)
+
+    withBuffer(function()
+        if ensureFeltCache() and _feltBuf then
+            local dst = _screenBuf or 0
+            -- если рисуем в screenBuf, active уже screenBuf
+            pcall(gpu.bitblt, dst ~= 0 and dst or 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
+        else
+            fill(1, 1, UI.w, UI.h, FELT_BASE)
+        end
+
+        drawTableRail(mw)
+        UI.drawHeader()
+        UI.drawSidebar()
+
+        if UI.alert then
+            UI.drawAlert()
+        elseif UI.input.active then
+            UI.drawInputModal()
+        else
+            UI.drawMainArea()
+        end
+
+        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+    end)
 end
 
 
@@ -1832,6 +1907,7 @@ end
 function UI.logout()
     UI.stopAnim()
     UI.stopSessionTimer()
+    -- кэш welcome валиден — карты снова без мигания
     if UI.playerName then log("ВЫХОД", UI.playerName, "Выход") end
     UI.authorized = false; UI.playerName = nil; UI.screen = "main"
     Game.reset(); UI.draw()
@@ -1953,20 +2029,18 @@ function UI.flyCard(who, card, faceDown, onDone)
     local step = 0
     local prevX, prevY = nil, nil
 
-    -- один полный кадр в начале (стол + руки), дальше только летящая карта
-    UI.anim = nil
-    UI.draw()
+    if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
+        UI.anim = nil
+        UI.draw()
+    end
 
-    UI.anim = {
-        card = card,
-        hidden = true,
-        x = shoeX, y = shoeY,
-        who = who
-    }
+    UI.anim = { card = card, hidden = true, x = shoeX, y = shoeY, who = who }
+    drawShoe(mw)
+    drawCard(shoeX, shoeY, card, true)
+    prevX, prevY = shoeX, shoeY
 
     local function eraseAt(x, y)
         if not x then return end
-        -- затираем след карты цветом сукна (без полного redraw)
         gpu.setBackground(FELT_BASE)
         gpu.fill(x, y, CARD_W, CARD_H, " ")
     end
@@ -1979,8 +2053,6 @@ function UI.flyCard(who, card, faceDown, onDone)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
 
         eraseAt(prevX, prevY)
-        UI.anim.x, UI.anim.y = nx, ny
-        UI.anim.hidden = true
         drawCard(nx, ny, card, true)
         prevX, prevY = nx, ny
 
@@ -1988,16 +2060,27 @@ function UI.flyCard(who, card, faceDown, onDone)
             UI.schedule(0.035, frame)
         else
             eraseAt(prevX, prevY)
-            -- финальная позиция + переворот
-            UI.anim.x, UI.anim.y = tx, ty
-            UI.anim.hidden = faceDown and true or false
+            table.insert(hand, card)
+            UI.anim = nil
             drawCard(tx, ty, card, faceDown and true or false)
-            UI.schedule(0.08, function()
-                UI.anim = nil
-                table.insert(hand, card)
-                UI.draw()  -- один полный кадр после прилёта
-                if onDone then onDone() end
-            end)
+
+            local n = #hand
+            local hw = (math.max(1, n) - 1) * CARD_STEP + CARD_W
+            local handStartX = math.max(3, math.floor((mw - hw) / 2) - 6)
+            local badgeX = handStartX + hw + 3
+            local badgeY = (who == "player") and 25 or 8
+            if who == "player" then
+                drawScoreBadge(badgeX, badgeY, "ВЫ", tostring(Cards.handValue(hand)), config.colors.textGold)
+            else
+                local score = "?"
+                if Game.state == "dealer_turn" or Game.state == "result" or Game.finished then
+                    score = tostring(Cards.handValue(hand))
+                elseif n < 2 then
+                    score = tostring(Cards.handValue(hand))
+                end
+                drawScoreBadge(badgeX, badgeY, "ДИЛЕР", score, config.colors.textGold)
+            end
+            if onDone then onDone() end
         end
     end
     UI.schedule(0.02, frame)
@@ -2009,7 +2092,8 @@ function UI.startDealAnim()
     Game.bet = UI.betAmount
     UI.screen = "playing"
     UI.anim = nil
-    UI.draw()
+    _welcomeReady = false  -- больше не welcome
+    UI.draw()  -- один раз пустой стол
 
     -- очередь: who, faceDown (дыра дилера)
     local queue = {
@@ -2163,6 +2247,8 @@ local function boot()
     _feltReady = false
     _feltBuf = nil
     _screenBuf = nil
+    _welcomeBuf = nil
+    _welcomeReady = false
 
     pcall(gpu.setBackground, FELT_BASE or 0x0D6B3F)
     pcall(gpu.fill, 1, 1, UI.w, UI.h, " ")
