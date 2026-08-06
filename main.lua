@@ -253,123 +253,95 @@ function Hardware.exportPayout(itemName, count)
     count = math.floor(count)
     local side = config.hardware.meSide
 
-    -- Найти предмет в ME
-    local items = nil
-    local ok, res = pcall(function()
-        return Hardware.me.getItemsInNetwork({ name = itemName })
-    end)
-    if (not ok) or (not res) or (#res == 0) then
-        ok, res = pcall(function() return Hardware.me.getItemsInNetwork() end)
-        if ok and res then
-            items = {}
-            for _, it in ipairs(res) do
-                local n = it.name or it.id
-                if n == itemName or tostring(n) == tostring(itemName) then
-                    table.insert(items, it)
+    local function countInNetwork()
+        local total = 0
+        local ok, list = pcall(function()
+            return Hardware.me.getItemsInNetwork({ name = itemName })
+        end)
+        if not ok or not list or #list == 0 then
+            ok, list = pcall(function() return Hardware.me.getItemsInNetwork() end)
+            if ok and list then
+                local filtered = {}
+                for _, it in ipairs(list) do
+                    local n = it.name or it.id
+                    if tostring(n) == tostring(itemName) then
+                        table.insert(filtered, it)
+                    end
                 end
+                list = filtered
+            else
+                list = {}
             end
         end
-    else
-        items = res
-    end
-    if not items or #items == 0 then
-        return 0, "В ME сети нет: " .. tostring(itemName)
+        for _, it in ipairs(list or {}) do
+            total = total + (tonumber(it.size) or tonumber(it.qty) or 0)
+        end
+        return total, list
     end
 
-    local available = 0
-    for _, it in ipairs(items) do
-        available = available + (tonumber(it.size) or tonumber(it.qty) or 0)
-    end
-    if available < 1 then
-        return 0, "В ME 0 шт: " .. tostring(itemName)
+    local available, items = countInNetwork()
+    if available < 1 or not items or #items == 0 then
+        return 0, "В ME сети нет: " .. tostring(itemName)
     end
     if count > available then count = available end
 
     local stack = items[1]
+    local name = tostring(stack.name or stack.id or itemName)
     local dmg = tonumber(stack.damage) or 0
-    local name = stack.name or itemName
 
-    -- Чистые fingerprint-таблицы (без size и лишних полей — они ломают конвертер)
-    local filters = {
-        { name = name, damage = dmg },
-        { id = name, damage = dmg },
-        { id = name },
-        { name = name },
-        { name = name, damage = dmg, label = stack.label },
+    -- Один чистый fingerprint (поле id обязательно для твоего AE2)
+    -- id обязателен; dmg/damage — разные сборки AE2
+    local fingerprint = {
+        id = name,
+        name = name,
+        damage = dmg,
+        dmg = dmg
     }
-    -- если у стака есть готовый fingerprint-табличный
-    if type(stack.fingerprint) == "table" then
-        table.insert(filters, 1, stack.fingerprint)
+    if stack.label then fingerprint.label = tostring(stack.label) end
+    -- если в стаке из сети уже был id другого вида — приоритет ему
+    if stack.id ~= nil and tostring(stack.id) ~= "" then
+        fingerprint.id = stack.id
     end
 
-    local sides = { side }
-    -- дубли только если side числовой top=1
-    if side == 1 then
-        table.insert(sides, "UP")
-        table.insert(sides, "up")
+    local before = available
+
+    -- Единственная попытка exportItem (без перебора — иначе выдаёт несколько раз)
+    local ok, result = pcall(function()
+        return Hardware.me.exportItem(fingerprint, side, count)
+    end)
+
+    -- Считаем факт по остатку в сети (надёжнее, чем return value)
+    local after = countInNetwork()
+    local moved = before - after
+    if moved < 0 then moved = 0 end
+    if moved > count then moved = count end
+
+    if moved > 0 then
+        return moved, nil
     end
 
-    local errors = {}
-    for fi, filter in ipairs(filters) do
-        for _, s in ipairs(sides) do
-            -- signature: exportItem(filter, side, count)
-            local ok2, moved = pcall(function()
-                return Hardware.me.exportItem(filter, s, count)
-            end)
-            if ok2 then
-                moved = tonumber(moved) or 0
-                if moved > 0 then return moved, nil end
-                table.insert(errors, "f" .. fi .. "s вернул 0")
-            else
-                local err = tostring(moved)
-                -- пропускаем заведомо бесполезные
-                if not err:find("9%.0") and not err:find("value %d") then
-                    table.insert(errors, err)
-                else
-                    table.insert(errors, err)
-                end
-            end
-
-            -- alt signature: exportItem(side, filter, count)
-            ok2, moved = pcall(function()
-                return Hardware.me.exportItem(s, filter, count)
-            end)
-            if ok2 then
-                moved = tonumber(moved) or 0
-                if moved > 0 then return moved, nil end
-            end
-        end
-    end
-
-    -- Database store → export (если есть database-компонент)
-    local dbAddr = nil
-    for addr in component.list("database") do
-        dbAddr = addr
-        break
-    end
-    if dbAddr then
-        local db = component.proxy(dbAddr)
-        pcall(function() if db.clear then db.clear(1) end end)
-        local stored = pcall(function()
-            return Hardware.me.store({ name = name, damage = dmg }, dbAddr, 1)
+    -- Если не сработало — пробуем side "UP" один раз
+    if side == 1 or side == "UP" or side == "up" then
+        before = countInNetwork()
+        ok, result = pcall(function()
+            return Hardware.me.exportItem(fingerprint, "UP", count)
         end)
-        if stored then
-            for _, s in ipairs(sides) do
-                -- некоторые сборки: export из слота БД через интерфейс
-                local ok3, moved = pcall(function()
-                    return Hardware.me.exportItem(1, s, count)
-                end)
-                if ok3 and tonumber(moved) and tonumber(moved) > 0 then
-                    return tonumber(moved), nil
-                end
-            end
-        end
+        after = countInNetwork()
+        moved = before - after
+        if moved < 0 then moved = 0 end
+        if moved > 0 then return moved, nil end
     end
 
-    local last = errors[#errors] or "неизвестная ошибка"
-    -- короче для UI
-    if #last > 80 then last = last:sub(1, 77) .. "..." end
-    return 0, last
+    local err = "export не удался"
+    if not ok then
+        err = tostring(result)
+    elseif result ~= nil then
+        err = "export вернул: " .. tostring(result)
+    else
+        err = "предметы не списались из ME"
+    end
+    if #err > 90 then err = err:sub(1, 87) .. "..." end
+    return 0, err
 end
 
 --------------------------------------------------
