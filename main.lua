@@ -360,76 +360,159 @@ function Hardware.exportPayout(itemName, count)
     if not Hardware.me then return 0, "ME Interface не найден" end
     if not itemName or count <= 0 then return 0, "Нет предмета" end
     count = math.floor(count)
-    local side = config.hardware.meSide
+
+    local sidesLib = nil
+    pcall(function() sidesLib = require("sides") end)
 
     local function countInNetwork()
-        local total = 0
-        local list = nil
+        local total, list = 0, {}
         local ok, res = pcall(function()
             return Hardware.me.getItemsInNetwork({ name = itemName })
         end)
-        if ok and res and #res > 0 then
-            list = res
-        else
+        if not ok or not res or #res == 0 then
             ok, res = pcall(function() return Hardware.me.getItemsInNetwork() end)
-            list = {}
-            if ok and res then
-                for _, it in ipairs(res) do
-                    local n = it.name or it.id
-                    if tostring(n) == tostring(itemName) then table.insert(list, it) end
-                end
+            res = (ok and res) or {}
+            local f = {}
+            for _, it in ipairs(res) do
+                if tostring(it.name or it.id) == tostring(itemName) then table.insert(f, it) end
             end
+            res = f
         end
-        for _, it in ipairs(list or {}) do
+        for _, it in ipairs(res or {}) do
             total = total + (tonumber(it.size) or tonumber(it.qty) or 0)
+            table.insert(list, it)
         end
         return total, list
     end
 
     local available, items = countInNetwork()
-    if available < 1 or not items or #items == 0 then
-        return 0, "В ME сети нет: " .. tostring(itemName)
+    if available < 1 then
+        return 0, "В ME нет: " .. tostring(itemName)
     end
     if count > available then count = available end
 
     local stack = items[1]
-    local name = tostring(stack.name or stack.id or itemName)
+    local name = tostring(stack.name or itemName)
     local dmg = tonumber(stack.damage) or 0
-    local fingerprint = { id = name, name = name, damage = dmg, dmg = dmg }
-    if stack.id ~= nil then fingerprint.id = stack.id end
 
-    -- Выдаём пачками по 64 (лимит стака), пока не наберём всю сумму
+    -- варианты fingerprint
+    local fingerprints = {
+        { id = name, name = name, damage = dmg, dmg = dmg },
+        { id = name, damage = dmg },
+        { name = name, damage = dmg },
+        { name = name },
+        { id = name },
+    }
+    if type(stack.fingerprint) == "table" then
+        table.insert(fingerprints, 1, stack.fingerprint)
+    end
+    -- иногда AE2 принимает сам объект из сети (без size)
+    local clean = {}
+    for k, v in pairs(stack) do
+        if k ~= "size" and k ~= "isCraftable" and k ~= "qty" then
+            clean[k] = v
+        end
+    end
+    if not clean.id then clean.id = name end
+    if not clean.name then clean.name = name end
+    table.insert(fingerprints, 1, clean)
+
+    -- стороны: сундук СВЕРХУ интерфейса
+    local sideList = {}
+    if sidesLib then
+        table.insert(sideList, sidesLib.top or sidesLib.up or 1)
+    end
+    for _, s in ipairs({ 1, "UP", "up", "top", 0, "DOWN" }) do
+        table.insert(sideList, s)
+    end
+    if config.hardware.meSide then
+        table.insert(sideList, 1, config.hardware.meSide)
+    end
+
+    local function tryExport(fp, side, batch)
+        local ok, result = pcall(function()
+            return Hardware.me.exportItem(fp, side, batch)
+        end)
+        if not ok then return 0, tostring(result) end
+        local n = tonumber(result)
+        if n and n > 0 then return n, nil end
+        -- некоторые версии возвращают true
+        if result == true then return batch, nil end
+        return 0, "return=" .. tostring(result)
+    end
+
     local totalMoved = 0
-    local lastErr = nil
+    local lastErr = "неизвестно"
+    local successSide = nil
+    local successFp = nil
+
     while totalMoved < count do
         local batch = math.min(64, count - totalMoved)
         local before = countInNetwork()
+        local moved = 0
 
-        local ok, result = pcall(function()
-            return Hardware.me.exportItem(fingerprint, side, batch)
-        end)
-        if not ok then
-            ok, result = pcall(function()
-                return Hardware.me.exportItem(fingerprint, "UP", batch)
-            end)
+        -- если уже нашли рабочую пару side+fp — используем её
+        if successSide and successFp then
+            local m, err = tryExport(successFp, successSide, batch)
+            if m > 0 then
+                moved = m
+            else
+                -- проверяем по факту в сети
+                local after = countInNetwork()
+                moved = math.max(0, before - after)
+                if moved <= 0 then lastErr = err or lastErr; break end
+            end
+        else
+            -- поиск рабочей комбинации
+            for _, fp in ipairs(fingerprints) do
+                if moved > 0 then break end
+                for _, side in ipairs(sideList) do
+                    local m, err = tryExport(fp, side, batch)
+                    lastErr = err or lastErr
+                    if m > 0 then
+                        moved = m
+                        successSide = side
+                        successFp = fp
+                        break
+                    end
+                    -- дельта в сети
+                    local after = countInNetwork()
+                    local delta = before - after
+                    if delta > 0 then
+                        moved = delta
+                        successSide = side
+                        successFp = fp
+                        break
+                    end
+                    before = after -- на случай частичного
+                end
+            end
         end
 
-        local after = countInNetwork()
-        local moved = before - after
-        if moved < 0 then moved = 0 end
-        if moved > batch then moved = batch end
+        if moved <= 0 then
+            -- финальная проверка
+            local after = countInNetwork()
+            moved = math.max(0, before - after)
+        end
 
         if moved <= 0 then
-            lastErr = (not ok) and tostring(result) or "не удалось выдать пачку"
+            if lastErr and lastErr:find("fingerprint") then
+                lastErr = "fingerprint: " .. lastErr
+            elseif lastErr == "return=0" or lastErr == "return=nil" then
+                lastErr = "сундук полон или неверная сторона ME"
+            end
             break
         end
         totalMoved = totalMoved + moved
     end
 
     if totalMoved > 0 then
-        return totalMoved, (totalMoved < count) and ("частично " .. totalMoved .. "/" .. count) or nil
+        if totalMoved < count then
+            return totalMoved, "частично " .. totalMoved .. "/" .. count
+        end
+        return totalMoved, nil
     end
-    return 0, lastErr or "export не удался"
+    return 0, lastErr or "не удалось выдать"
 end
 
 --------------------------------------------------
