@@ -601,18 +601,23 @@ end
 -- Фон сукна стола
 local FELT_BASE = 0x0D6B3F
 local FELT_PAT  = 0x1A9A5C
-local _feltCache = { w = 0, h = 0, buf = nil }
+local _screenBuf = nil
 
 local function drawFelt(x, y, w, h)
-    -- быстрая заливка + редкий узор (меньше gpu.set = меньше лагов)
+    -- только заливка (узор убран — он давал лаги и мигание)
+    fill(x, y, w, h, FELT_BASE)
+end
+
+local function drawFeltPattern(x, y, w, h)
+    -- лёгкий узор только для экрана ожидания (рисуется 1 раз вместе с контентом)
     fill(x, y, w, h, FELT_BASE)
     gpu.setBackground(FELT_BASE)
     gpu.setForeground(FELT_PAT)
     local suits = { "♠", "♥", "♦", "♣" }
     local si = 1
-    for row = y, y + h - 1, 3 do
-        local shift = (math.floor((row - y) / 3) % 2) * 2
-        for col = x + shift, x + w - 1, 5 do
+    for row = y, y + h - 1, 4 do
+        local shift = (math.floor((row - y) / 4) % 2) * 2
+        for col = x + shift, x + w - 1, 6 do
             gpu.set(col, row, suits[si])
             si = si % 4 + 1
         end
@@ -620,20 +625,20 @@ local function drawFelt(x, y, w, h)
 end
 
 local function drawScreen()
-    -- двойная буферизация если GPU умеет (убирает мигание)
+    UI.clearButtons()
+
+    -- буфер переиспользуем, не создаём каждый кадр
     local useBuf = false
-    local bufId = nil
     if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
-        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-        if ok and id then
-            bufId = id
-            if pcall(gpu.setActiveBuffer, bufId) then
-                useBuf = true
-            end
+        if not _screenBuf then
+            local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+            if ok and id then _screenBuf = id end
+        end
+        if _screenBuf and pcall(gpu.setActiveBuffer, _screenBuf) then
+            useBuf = true
         end
     end
 
-    UI.clearButtons()
     drawFelt(1, 1, UI.w, UI.h)
     UI.drawHeader()
     UI.drawSidebar()
@@ -641,10 +646,9 @@ local function drawScreen()
     if UI.alert then UI.drawAlert() end
     for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
 
-    if useBuf and bufId then
+    if useBuf and _screenBuf then
         pcall(gpu.setActiveBuffer, 0)
-        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, bufId, 1, 1)
-        pcall(gpu.freeBuffer, bufId)
+        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf)
     end
 end
 
@@ -811,7 +815,7 @@ end
 --------------------------------------------------
 function UI.drawHeader()
     fill(1, 1, UI.w, 1, config.colors.header)
-    centerText(1, "КАЗИНО  •  BLACKJACK", config.colors.textBlue, config.colors.header)
+    centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
 end
 
 function UI.drawSidebar()
@@ -858,13 +862,18 @@ function UI.drawSidebar()
         if count > 6 or y >= UI.h - 8 then break end
         local short = entry.label
         if unicode.len(short) > 14 then short = unicode.sub(short, 1, 12) .. ".." end
-        text(sx + 1, y, string.format("%s - %s", short, entry.price), config.colors.text, config.colors.panel)
+        local priceStr = tostring(entry.price)
+        local line = string.format("%s 1 шт - %s %s", short, priceStr, config.currency.symbol)
+        if unicode.len(line) > sw - 2 then
+            line = string.format("%s - %s %s", short, priceStr, config.currency.symbol)
+        end
+        text(sx + 1, y, line, config.colors.text, config.colors.panel)
         y = y + 1
     end
     if count == 0 then text(sx + 1, y, "Нет предметов", config.colors.textDark, config.colors.panel); y = y + 1 end
 
     y = y + 1
-    text(sx + 1, y, "ТОП 15 (наиграно):", config.colors.textBlue, config.colors.panel); y = y + 1
+    text(sx + 1, y, "ТОП 15:", config.colors.textBlue, config.colors.panel); y = y + 1
     for i, entry in ipairs(Players.getTop(15)) do
         if y >= UI.h - 1 then break end
         local name = entry.name
@@ -880,28 +889,50 @@ end
 --------------------------------------------------
 function UI.drawRules(mw, startY)
     local y = startY or 22
+    local winX = tonumber(Settings.data.winPayout) or 2.0
+    local bjX  = tonumber(Settings.data.bjPayout) or 2.5
+    local winStr = (winX == math.floor(winX)) and tostring(math.floor(winX)) or string.format("%.2f", winX):gsub("0+$", ""):gsub("%.$", "")
+    local bjStr  = (bjX == math.floor(bjX)) and tostring(math.floor(bjX)) or string.format("%.2f", bjX):gsub("0+$", ""):gsub("%.$", "")
     centerText(y, "ПРАВИЛА", config.colors.textBlue, config.colors.background, mw); y = y + 1
     centerText(y, "Цель: набрать больше дилера, не больше 21", config.colors.text, config.colors.background, mw); y = y + 1
-    centerText(y, "Победа (обычная): 1:1  |  Blackjack (A+10): 3:2", config.colors.textGold, config.colors.background, mw); y = y + 1
+    centerText(y, "Победа: x" .. winStr .. "   |   Blackjack: x" .. bjStr, config.colors.textGold, config.colors.background, mw); y = y + 1
     centerText(y, "Ничья: ставка возвращается на баланс", config.colors.text, config.colors.background, mw); y = y + 1
     centerText(y, "Перебор (>21): проигрыш", config.colors.textDark, config.colors.background, mw)
 end
 
 function UI.drawWelcomeArt(mw)
-    local cx = math.floor(mw / 2)
-    fill(cx - 18, 8, 36, 12, config.colors.feltDark or 0x094D31)
-    centerText(9, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.feltDark or 0x094D31, mw)
-    centerText(10, "♦              ♣", 0xCCCCCC, config.colors.feltDark or 0x094D31, mw)
-    drawCard(cx - 14, 12, { rank = "A", suit = "♠" }, false)
-    drawCard(cx - 4,  12, { rank = "K", suit = "♥" }, false)
-    drawCard(cx + 6,  12, { rank = "Q", suit = "♦" }, false)
-    UI.drawRules(mw, 22)
-    centerText(28, "Нажмите «АВТОРИЗАЦИЯ» справа", config.colors.text, config.colors.background, mw)
+    -- хаотично разбросанные карты по столу (без зелёной подложки)
+    local scatter = {
+        -- x, y, rank, suit, hidden (рубашка)
+        {  3,  3, "A", "♠", false },
+        { 14,  4, "7", "♥", true  },
+        { 28,  3, "K", "♦", false },
+        { 42,  5, "3", "♣", false },
+        {  6, 11, "Q", "♥", false },
+        { 20, 10, "10","♠", true  },
+        { 35, 12, "J", "♣", false },
+        { 48,  9, "5", "♦", true  },
+        {  4, 18, "9", "♦", false },
+        { 18, 17, "2", "♣", true  },
+        { 40, 18, "A", "♥", false },
+        { 52, 15, "8", "♠", false },
+        { 30, 20, "4", "♥", true  },
+        { 12, 22, "K", "♠", false },
+        { 45, 23, "6", "♣", false },
+    }
+    for _, c in ipairs(scatter) do
+        if c[1] + 9 < mw - 1 and c[2] + 7 < UI.h - 1 then
+            drawCard(c[1], c[2], { rank = c[3], suit = c[4] }, c[5])
+        end
+    end
+    -- заголовок поверх
+    centerText(8, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.background, mw)
+    UI.drawRules(mw, 26)
+    centerText(math.min(UI.h - 2, 32), "Нажмите «АВТОРИЗАЦИЯ» справа", config.colors.text, config.colors.background, mw)
 end
 
 function UI.drawMainArea()
     local mw = UI.w - config.ui.sidebarWidth
-    drawFelt(1, 2, mw, UI.h - 1)
     if UI.input.active then UI.drawInputModal(); return end
 
     if UI.screen == "main" then
@@ -972,7 +1003,6 @@ end
 -- АДМИН
 --------------------------------------------------
 function UI.drawAdmin(mw)
-    drawFelt(1, 2, mw, UI.h - 1)
     centerText(3, "АДМИН-ПАНЕЛЬ", config.colors.textBlue, config.colors.background, mw)
 
     local tabs = {
@@ -1183,7 +1213,6 @@ function UI.drawAdminOdds(mw)
 end
 
 function UI.drawAdminAddItem(mw)
-    drawFelt(1, 2, mw, UI.h - 1)
     local title = UI.editItem.target == "payout" and "ПРЕДМЕТ ВЫПЛАТЫ" or "ДОБАВЛЕНИЕ ПРЕДМЕТА"
     centerText(5, title, config.colors.textBlue, config.colors.background, mw)
     centerText(9, "Положи предмет в левый сундук", config.colors.text, config.colors.background, mw)
@@ -1204,7 +1233,6 @@ function UI.drawAdminAddItem(mw)
 end
 
 function UI.drawAdminEditItem(mw)
-    drawFelt(1, 2, mw, UI.h - 1)
     centerText(4, "НАСТРОЙКА ПРЕДМЕТА", config.colors.textBlue, config.colors.background, mw)
     text(4, 7, "ID: " .. (UI.editItem.name or "?"), config.colors.textDark, config.colors.background)
 
