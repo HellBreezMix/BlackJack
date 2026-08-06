@@ -734,8 +734,18 @@ local FELT_PAT  = 0x1A9A5C
 local _screenBuf = nil
 
 local function drawFelt(x, y, w, h)
-    -- только заливка (узор убран — он давал лаги и мигание)
     fill(x, y, w, h, FELT_BASE)
+    gpu.setBackground(FELT_BASE)
+    gpu.setForeground(FELT_PAT)
+    local suits = { "♠", "♥", "♦", "♣" }
+    local si = 1
+    for row = y, y + h - 1, 3 do
+        local shift = (math.floor((row - y) / 3) % 2) * 2
+        for col = x + shift, x + w - 1, 5 do
+            gpu.set(col, row, suits[si])
+            si = si % 4 + 1
+        end
+    end
 end
 
 local function drawFeltPattern(x, y, w, h)
@@ -757,7 +767,6 @@ end
 local function drawScreen()
     UI.clearButtons()
 
-    -- буфер переиспользуем, не создаём каждый кадр
     local useBuf = false
     if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
         if not _screenBuf then
@@ -772,8 +781,16 @@ local function drawScreen()
     drawFelt(1, 1, UI.w, UI.h)
     UI.drawHeader()
     UI.drawSidebar()
-    UI.drawMainArea()
-    if UI.alert then UI.drawAlert() end
+
+    -- модалка поверх: не рисуем кнопки главного экрана (иначе ИГРАТЬ просвечивает)
+    if UI.alert then
+        UI.drawAlert()
+    elseif UI.input.active then
+        UI.drawInputModal()
+    else
+        UI.drawMainArea()
+    end
+
     for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
 
     if useBuf and _screenBuf then
@@ -959,8 +976,8 @@ function UI.drawSidebar()
             UI.setMessage("Коснитесь экрана своим ником", config.colors.textGold, 5)
             UI.draw()
         end)
-        text(sx + 2, 8, "Нажмите кнопку,", config.colors.textDark, config.colors.panel)
-        text(sx + 2, 9, "затем коснитесь", config.colors.textDark, config.colors.panel)
+        text(sx + 1, 8, "Нажмите кнопку", config.colors.textDark, config.colors.panel)
+        text(sx + 1, 9, "для авторизации", config.colors.textDark, config.colors.panel)
     else
         UI.addButton(sx + 1, 3, sw - 2, 3, "ВЫХОД", config.colors.buttonRed, 0xFFFFFF, function() UI.logout() end)
         text(sx + 2, 7, UI.playerName or "?", config.colors.textGreen, config.colors.panel)
@@ -1065,12 +1082,11 @@ function UI.drawWelcomeArt(mw)
     -- чистый центр: заголовок + правила
     centerText(10, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.background, mw)
     UI.drawRules(mw, 13)
-    centerText(20, "Нажмите «АВТОРИЗАЦИЯ» справа", config.colors.text, config.colors.background, mw)
+    centerText(20, "Нажмите кнопку для авторизации", config.colors.text, config.colors.background, mw)
 end
 
 function UI.drawMainArea()
     local mw = UI.w - config.ui.sidebarWidth
-    if UI.input.active then UI.drawInputModal(); return end
 
     if UI.screen == "main" then
         if UI.authorized then
@@ -1104,15 +1120,35 @@ function UI.drawMainArea()
 
     elseif UI.screen == "playing" or UI.screen == "result" then
         local hideDealer = (UI.screen == "playing" and not Game.finished and Game.state ~= "dealer_turn")
-        text(4, 3, "ДИЛЕР", config.colors.text, config.colors.background)
-        text(12, 3, hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand)), config.colors.textGold, config.colors.background)
-        drawHand(4, 5, Game.dealer.hand, hideDealer)
-        text(4, 13, "ВЫ", config.colors.text, config.colors.background)
-        text(10, 13, tostring(Cards.handValue(Game.player.hand)), config.colors.textGold, config.colors.background)
-        drawHand(4, 15, Game.player.hand, false)
-        text(4, 23, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background)
+        local cardW = 10
+        local function handWidth(n)
+            n = math.max(1, n)
+            return (n - 1) * cardW + 9
+        end
+        local function handX(n)
+            return math.max(2, math.floor((mw - handWidth(n)) / 2) + 1)
+        end
+
+        -- Дилер: крупный заголовок + счёт, карты по центру
+        local dCount = math.max(1, #Game.dealer.hand)
+        local dScore = hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand))
+        centerText(3, "◆  ДИЛЕР  ◆", config.colors.text, config.colors.background, mw)
+        centerText(4, dScore, config.colors.textGold, config.colors.background, mw)
+        drawHand(handX(#Game.dealer.hand > 0 and #Game.dealer.hand or 1), 6, Game.dealer.hand, hideDealer)
+
+        -- Игрок
+        local pCount = math.max(1, #Game.player.hand)
+        local pScore = tostring(Cards.handValue(Game.player.hand))
+        centerText(15, "◆  ВЫ  ◆", config.colors.text, config.colors.background, mw)
+        centerText(16, pScore, config.colors.textGold, config.colors.background, mw)
+        drawHand(handX(#Game.player.hand > 0 and #Game.player.hand or 1), 18, Game.player.hand, false)
+
+        centerText(26, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
+
+        local btnY = 28
+        local cx = math.floor(mw / 2)
         if UI.screen == "playing" and not Game.finished and Game.state == "playing" then
-            UI.addButton(4, 25, 12, 3, "ВЗЯТЬ", config.colors.buttonGreen, 0xFFFFFF, function()
+            UI.addButton(cx - 14, btnY, 12, 3, "ВЗЯТЬ", config.colors.buttonGreen, 0xFFFFFF, function()
                 if Game.state ~= "playing" then return end
                 Game.hit()
                 UI.draw()
@@ -1120,22 +1156,25 @@ function UI.drawMainArea()
                     UI.schedule(0.45, function() UI.resolveGame(); UI.draw() end)
                 end
             end)
-            UI.addButton(18, 25, 12, 3, "СТОП", config.colors.buttonRed, 0xFFFFFF, function()
+            UI.addButton(cx + 2, btnY, 12, 3, "СТОП", config.colors.buttonRed, 0xFFFFFF, function()
                 if Game.state ~= "playing" then return end
                 UI.startDealerAnim()
             end)
         elseif UI.screen == "playing" and Game.state == "dealing" then
-            centerText(25, "Раздача...", config.colors.textGold, config.colors.background, mw)
+            centerText(btnY, "Раздача...", config.colors.textGold, config.colors.background, mw)
         elseif UI.screen == "playing" and Game.state == "dealer_turn" then
-            centerText(25, "Ход дилера...", config.colors.textGold, config.colors.background, mw)
+            centerText(btnY, "Ход дилера...", config.colors.textGold, config.colors.background, mw)
         elseif UI.screen == "result" then
             local resText = ({ WIN="ПОБЕДА!", LOSE="ПОРАЖЕНИЕ", DRAW="НИЧЬЯ", BLACKJACK="BLACKJACK!" })[Game.result] or Game.result
             local resCol = ({ WIN=config.colors.textGreen, LOSE=config.colors.textRed, DRAW=config.colors.textGold, BLACKJACK=config.colors.textGold })[Game.result] or config.colors.text
-            centerText(24, resText, resCol, config.colors.background, mw)
+            centerText(btnY - 1, resText, resCol, config.colors.background, mw)
             local winAmount = math.floor(Game.bet * Game.payoutMultiplier() + 0.5)
-            if winAmount > 0 then centerText(25, "+" .. winAmount .. " " .. config.currency.symbol, config.colors.textGreen, config.colors.background, mw) end
-            UI.addButton(math.floor(mw/2) - 8, 27, 16, 3, "ЕЩЁ РАЗ", config.colors.buttonGreen, 0xFFFFFF, function()
-                UI.screen = "main"; Game.reset(); UI.draw() end)
+            if winAmount > 0 then
+                centerText(btnY, "+" .. winAmount .. " " .. config.currency.symbol, config.colors.textGreen, config.colors.background, mw)
+            end
+            UI.addButton(cx - 8, btnY + 2, 16, 3, "ЕЩЁ РАЗ", config.colors.buttonGreen, 0xFFFFFF, function()
+                UI.screen = "main"; Game.reset(); UI.draw()
+            end)
         end
 
     elseif UI.screen == "admin" then UI.drawAdmin(mw)
@@ -1541,13 +1580,20 @@ end
 function UI.drawAlert()
     if not UI.alert then return end
     local mw = UI.w - config.ui.sidebarWidth
-    local boxW, boxH = 36, 9
+    -- затемнение игровой зоны
+    fill(1, 2, mw, UI.h - 1, 0x042818)
+    local boxW, boxH = 40, 11
     local bx = math.floor((mw - boxW) / 2) + 1
     local by = math.floor((UI.h - boxH) / 2)
-    fill(1, 2, mw, UI.h - 1, 0x042818)
     drawBox(bx, by, boxW, boxH, config.colors.textRed, config.colors.panel)
-    centerText(by + 2, UI.alert.title, config.colors.textRed, config.colors.panel, mw)
-    UI.addButton(bx + math.floor((boxW - 12) / 2), by + 5, 12, 3, "ОК", config.colors.buttonGreen, 0xFFFFFF, function()
+    -- заголовок
+    local title = UI.alert.title or "Сообщение"
+    local tx = bx + math.floor((boxW - unicode.len(title)) / 2)
+    text(tx, by + 3, title, config.colors.textRed, config.colors.panel)
+    -- кнопка ОК по центру окна
+    local bw = 14
+    local bxbtn = bx + math.floor((boxW - bw) / 2)
+    UI.addButton(bxbtn, by + 6, bw, 3, "ОК", config.colors.buttonGreen, 0xFFFFFF, function()
         local cb = UI.alert and UI.alert.cb
         UI.alert = nil
         if cb then cb() end
