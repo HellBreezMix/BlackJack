@@ -70,14 +70,23 @@ end
 -- ВРЕМЯ (Москва, UTC+3)
 --------------------------------------------------
 local function moscowNow()
-    -- os.time() обычно UTC/серверное; Москва = UTC+3 (без перехода на летнее)
-    return os.time() + 3 * 3600
+    -- real-time unix; Москва UTC+3
+    local t = os.time()
+    if type(t) ~= "number" or t < 100000 then
+        -- fallback если os.time недоступен
+        t = math.floor(computer.uptime() + 1700000000)
+    end
+    return t + 3 * 3600
 end
 
 local function moscowDate(fmt, t)
     fmt = fmt or "%Y-%m-%d %H:%M:%S"
     t = t or moscowNow()
-    return os.date("!" .. fmt, t)  -- ! = интерпретировать как UTC, мы уже сдвинули
+    local ok, s = pcall(os.date, "!" .. fmt, t)
+    if ok and s then return s end
+    ok, s = pcall(os.date, fmt, t)
+    if ok and s then return s end
+    return "?"
 end
 
 --------------------------------------------------
@@ -85,15 +94,25 @@ end
 --------------------------------------------------
 local Logs = { entries = {} }
 
+local LOG_KEEP = {
+    ["ПОПОЛНЕНИЕ"] = true,
+    ["ВЫИГРЫШ"] = true,
+    ["ПРОИГРЫШ"] = true,
+    ["ОШИБКА"] = true,
+}
+
 local function log(kind, player, text)
+    kind = kind or "INFO"
+    -- в UI/файл только важные события
+    if not LOG_KEEP[kind] then return end
     local entry = {
         time   = moscowNow(),
-        kind   = kind or "INFO",
+        kind   = kind,
         player = player or "-",
         text   = text or ""
     }
     table.insert(Logs.entries, 1, entry)
-    while #Logs.entries > 80 do table.remove(Logs.entries) end
+    while #Logs.entries > 100 do table.remove(Logs.entries) end
     ensureDir(config.paths.log)
     local f = io.open(config.paths.log, "a")
     if f then
@@ -110,11 +129,11 @@ local function loadLogsFromFile()
     local lines = {}
     for line in f:lines() do table.insert(lines, line) end
     f:close()
-    local start = math.max(1, #lines - 49)
+    local start = math.max(1, #lines - 80)
     for i = #lines, start, -1 do
         local line = lines[i]
         local ts, kind, player, text = line:match("%[(.-)%] (.-) | (.-) | (.+)")
-        if ts and kind then
+        if ts and kind and LOG_KEEP[kind] then
             table.insert(Logs.entries, {
                 time = 0, kind = kind, player = player or "-", text = text or line, raw = line
             })
@@ -789,31 +808,6 @@ function UI.drawSidebar()
 end
 
 --------------------------------------------------
-local function drawTree(x, y)
-    local green = 0x3CFF7A
-    local brown = 0xC4A574
-    local leaf = {
-        "   ▲   ",
-        "  ▲▲▲  ",
-        " ▲▲▲▲▲ ",
-        "▲▲▲▲▲▲▲",
-    }
-    for i, line in ipairs(leaf) do
-        text(x, y + i - 1, line, green, config.colors.background)
-    end
-    text(x + 2, y + 4, " ║║", brown, config.colors.background)
-    text(x + 2, y + 5, " ║║", brown, config.colors.background)
-end
-
-function UI.drawDecor(mw)
-    -- дерево слева вверху (не сдвигается)
-    drawTree(3, 3)
-    -- зеркально справа от центральной зоны, если есть место
-    if mw > 50 then
-        drawTree(mw - 12, 3)
-    end
-end
-
 function UI.drawRules(mw, startY)
     local y = startY or 22
     centerText(y, "ПРАВИЛА", config.colors.textBlue, config.colors.background, mw); y = y + 1
@@ -824,7 +818,6 @@ function UI.drawRules(mw, startY)
 end
 
 function UI.drawWelcomeArt(mw)
-    UI.drawDecor(mw)
     local cx = math.floor(mw / 2)
     fill(cx - 18, 8, 36, 12, config.colors.feltDark or 0x094D31)
     centerText(9, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.feltDark or 0x094D31, mw)
@@ -843,8 +836,7 @@ function UI.drawMainArea()
 
     if UI.screen == "main" then
         if UI.authorized then
-            UI.drawDecor(mw)
-            local cx = math.floor(mw / 2)
+                    local cx = math.floor(mw / 2)
             centerText(10, "BLACKJACK", config.colors.textGold, config.colors.background, mw)
             local bal = fmtMoney(Players.get(UI.playerName).balance)
             centerText(12, "Ваш баланс: " .. bal .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
@@ -1021,35 +1013,49 @@ end
 function UI.drawAdminLogs(mw)
     text(4, 8, "Последние действия:", config.colors.textBlue, config.colors.background)
     local y = 10
-    local maxLines = UI.h - 14
     local start = 1 + (UI.logScroll or 0)
-    for i = start, math.min(start + maxLines - 1, #Logs.entries) do
+    local shown = 0
+    for i = start, #Logs.entries do
         local e = Logs.entries[i]
-        if not e then break end
-        local ts = e.raw and e.raw:match("^%[(.-)%]") or (e.time > 0 and moscowDate("%m-%d %H:%M", e.time) or "")
-        local kindCol = config.colors.text
-        if e.kind == "ВЫИГРЫШ" then kindCol = config.colors.textGreen
-        elseif e.kind == "ПРОИГРЫШ" then kindCol = config.colors.textRed
-        elseif e.kind == "ПОПОЛНЕНИЕ" then kindCol = config.colors.textGold
-        elseif e.kind == "ВЫВОД" then kindCol = config.colors.textBlue
-        elseif e.kind == "ОШИБКА" then kindCol = config.colors.textRed end
-        local line = string.format("%s %s | %s", ts, e.kind, e.player)
-        if unicode.len(line) > mw - 6 then line = unicode.sub(line, 1, mw - 8) .. ".." end
-        text(4, y, line, kindCol, config.colors.background); y = y + 1
-        if e.text and e.text ~= "" then
-            local t2 = "  " .. e.text
-            if unicode.len(t2) > mw - 6 then t2 = unicode.sub(t2, 1, mw - 8) .. ".." end
-            text(4, y, t2, config.colors.textDark, config.colors.background); y = y + 1
+        if e and LOG_KEEP[e.kind] then
+            local ts
+            if e.time and e.time > 100000 then
+                ts = moscowDate("%Y-%m-%d %H:%M:%S", e.time)
+            elseif e.raw then
+                ts = e.raw:match("^%[(.-)%]") or ""
+            else
+                ts = ""
+            end
+            local kindCol = config.colors.text
+            if e.kind == "ВЫИГРЫШ" then kindCol = config.colors.textGreen
+            elseif e.kind == "ПРОИГРЫШ" then kindCol = config.colors.textRed
+            elseif e.kind == "ПОПОЛНЕНИЕ" then kindCol = config.colors.textGold
+            elseif e.kind == "ОШИБКА" then kindCol = config.colors.textRed end
+
+            local line = string.format("[%s] %s | %s", ts, e.kind, e.player)
+            if unicode.len(line) > mw - 6 then line = unicode.sub(line, 1, mw - 8) .. ".." end
+            text(4, y, line, kindCol, config.colors.background)
+            y = y + 1
+            if e.text and e.text ~= "" then
+                local t2 = "  " .. e.text
+                if unicode.len(t2) > mw - 6 then t2 = unicode.sub(t2, 1, mw - 8) .. ".." end
+                text(4, y, t2, config.colors.textDark, config.colors.background)
+                y = y + 1
+            end
+            shown = shown + 1
+            if y > UI.h - 5 then break end
         end
-        if y > UI.h - 5 then break end
     end
-    if #Logs.entries == 0 then text(4, 10, "Логов пока нет", config.colors.textDark, config.colors.background) end
-    if #Logs.entries > maxLines then
-        UI.addButton(4, UI.h - 5, 8, 2, "▲", config.colors.button, config.colors.text, function()
-            UI.logScroll = math.max(0, (UI.logScroll or 0) - 3); UI.draw() end)
-        UI.addButton(14, UI.h - 5, 8, 2, "▼", config.colors.button, config.colors.text, function()
-            UI.logScroll = math.min(#Logs.entries - 1, (UI.logScroll or 0) + 3); UI.draw() end)
+    if shown == 0 then
+        text(4, 10, "Логов пока нет", config.colors.textDark, config.colors.background)
     end
+    -- стрелки справа от кнопки «НАЗАД»
+    UI.addButton(20, UI.h - 3, 5, 2, "▲", config.colors.button, config.colors.text, function()
+        UI.logScroll = math.max(0, (UI.logScroll or 0) - 2); UI.draw()
+    end)
+    UI.addButton(26, UI.h - 3, 5, 2, "▼", config.colors.button, config.colors.text, function()
+        UI.logScroll = math.min(math.max(0, #Logs.entries - 1), (UI.logScroll or 0) + 2); UI.draw()
+    end)
 end
 
 function UI.drawAdminAddItem(mw)
@@ -1157,13 +1163,25 @@ function UI.logout()
     Game.reset(); UI.draw()
 end
 
+function UI.updateSessionLabel()
+    if not UI.authorized or not UI.playerName then return end
+    if UI.input.active or UI.alert then return end
+    local sx = UI.w - config.ui.sidebarWidth + 1
+    local sw = config.ui.sidebarWidth
+    -- только строка таймера, без полной перерисовки (убирает мигание)
+    gpu.setBackground(config.colors.panel)
+    gpu.fill(sx + 1, 9, sw - 2, 1, " ")
+    gpu.setForeground(config.colors.textDark)
+    gpu.set(sx + 2, 9, "Выход через: " .. tostring(UI.sessionLeft) .. "с")
+end
+
 function UI.startSessionTimer()
     UI.stopSessionTimer()
     UI.timerId = event.timer(1, function()
         if not UI.authorized then return end
         UI.sessionLeft = UI.sessionLeft - 1
         if UI.sessionLeft <= 0 then UI.logout(); return end
-        UI.draw()
+        UI.updateSessionLabel()
     end, math.huge)
 end
 
