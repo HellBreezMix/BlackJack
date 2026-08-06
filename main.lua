@@ -1,5 +1,5 @@
 --------------------------------------------------
--- BlackJack Casino v2.3
+-- BlackJack Casino v2.4
 -- main.lua
 -- Автор: hellbreez + Grok
 --------------------------------------------------
@@ -251,65 +251,110 @@ function Hardware.exportPayout(itemName, count)
     if not Hardware.me then return 0, "ME Interface не найден" end
     if not itemName or count <= 0 then return 0, "Нет предмета" end
     count = math.floor(count)
+    local side = config.hardware.meSide
 
-    -- Ищем стак в сети (фильтр по name)
-    local ok, items = pcall(function()
+    -- 1) Найти предмет в сети
+    local items = nil
+    local ok, res = pcall(function()
         return Hardware.me.getItemsInNetwork({ name = itemName })
     end)
-    if not ok then
-        -- пробуем без фильтра и фильтруем сами
-        ok, items = pcall(function() return Hardware.me.getItemsInNetwork() end)
-        if ok and items then
-            local filtered = {}
-            for _, it in ipairs(items) do
-                if it.name == itemName then table.insert(filtered, it) end
+    if ok and res and #res > 0 then
+        items = res
+    else
+        ok, res = pcall(function() return Hardware.me.getItemsInNetwork() end)
+        if ok and res then
+            items = {}
+            for _, it in ipairs(res) do
+                if it.name == itemName or (it.id and tostring(it.id) == itemName) then
+                    table.insert(items, it)
+                end
             end
-            items = filtered
         end
     end
-    if not ok or not items or #items == 0 then
+    if not items or #items == 0 then
         return 0, "В ME сети нет: " .. tostring(itemName)
     end
 
     local available = 0
-    for _, it in ipairs(items) do available = available + (it.size or 0) end
-    if available < count then
-        return 0, string.format("В ME только %d шт, нужно %d", available, count)
+    for _, it in ipairs(items) do available = available + (it.size or it.qty or 0) end
+    if available < 1 then
+        return 0, "В ME сети 0 шт: " .. tostring(itemName)
+    end
+    if available < count then count = available end
+
+    local stack = items[1]
+
+    -- 2) Разные форматы fingerprint / filter для разных сборок AE2
+    local filters = {}
+
+    -- полный объект из сети (часто уже содержит fingerprint)
+    table.insert(filters, stack)
+
+    -- поле fingerprint, если есть
+    if stack.fingerprint then
+        table.insert(filters, stack.fingerprint)
     end
 
-    -- AE2 OC: exportItem часто требует ПОЛНЫЙ стак из getItemsInNetwork
-    -- (fingerprint / name+damage), а не голый {name=...}
-    local stack = items[1]
-    local side = config.hardware.meSide
+    -- классический name + damage
+    table.insert(filters, {
+        name = stack.name or itemName,
+        damage = stack.damage or 0
+    })
 
-    local attempts = {
-        function() return Hardware.me.exportItem(stack, side, count) end,
-        function()
-            local f = { name = stack.name }
-            if stack.damage ~= nil then f.damage = stack.damage end
-            return Hardware.me.exportItem(f, side, count)
-        end,
-        function()
-            return Hardware.me.exportItem({ name = itemName, damage = stack.damage or 0 }, side, count)
-        end,
-    }
+    -- вариант с id (ошибка требовала поле id)
+    table.insert(filters, {
+        id = stack.name or itemName,
+        name = stack.name or itemName,
+        damage = stack.damage or 0
+    })
+    table.insert(filters, { id = stack.name or itemName })
+    table.insert(filters, { id = itemName, damage = 0 })
+
+    -- label иногда помогает
+    if stack.label then
+        table.insert(filters, {
+            name = stack.name or itemName,
+            label = stack.label,
+            damage = stack.damage or 0,
+            id = stack.name or itemName
+        })
+    end
+
+    local sides = { side, "up", "UP", 1, 0 }
 
     local lastErr = nil
-    for _, fn in ipairs(attempts) do
-        local ok2, moved = pcall(fn)
-        if ok2 then
-            moved = tonumber(moved) or 0
-            if moved > 0 then
-                if moved < count then
-                    return moved, string.format("Выдано только %d из %d", moved, count)
+    for _, filter in ipairs(filters) do
+        for _, s in ipairs(sides) do
+            local ok2, moved = pcall(function()
+                return Hardware.me.exportItem(filter, s, count)
+            end)
+            if ok2 then
+                moved = tonumber(moved) or 0
+                if moved > 0 then
+                    return moved, nil
                 end
-                return moved, nil
+                lastErr = "exportItem вернул 0"
+            else
+                lastErr = tostring(moved)
             end
-            lastErr = "exportItem вернул 0"
-        else
-            lastErr = tostring(moved)
         end
     end
+
+    -- 3) Database-слоты (если на адаптере Database-карта)
+    for dbSlot = 1, 9 do
+        for _, s in ipairs(sides) do
+            local ok3, moved = pcall(function()
+                return Hardware.me.exportItem(dbSlot, s, count)
+            end)
+            if ok3 then
+                moved = tonumber(moved) or 0
+                if moved > 0 then return moved, nil end
+            else
+                lastErr = tostring(moved)
+            end
+        end
+    end
+
     return 0, "Ошибка exportItem: " .. tostring(lastErr)
 end
 
@@ -449,15 +494,23 @@ end
 function UI.clearButtons() UI.buttons = {} end
 
 function UI.addButton(x, y, w, h, text, bg, fg, callback)
-    table.insert(UI.buttons, { x=x, y=y, w=w, h=h, text=text, bg=bg, fg=fg or config.colors.text, cb=callback })
+    table.insert(UI.buttons, {
+        x = x, y = y, w = w, h = h,
+        text = text, bg = bg, fg = fg or config.colors.text,
+        cb = callback,
+        -- невидимая зона клика (не перерисовывает фон)
+        hitbox = (text == "" or text == nil) and (bg == 0x000000 or bg == 0)
+    })
 end
 
 function UI.drawButton(b)
+    if b.hitbox then return end  -- только клик, без заливки
     gpu.setBackground(b.bg); gpu.setForeground(b.fg)
     gpu.fill(b.x, b.y, b.w, b.h, " ")
-    local tx = b.x + math.floor((b.w - unicode.len(b.text)) / 2)
+    local label = b.text or ""
+    local tx = b.x + math.floor((b.w - unicode.len(label)) / 2)
     local ty = b.y + math.floor((b.h - 1) / 2)
-    gpu.set(tx, ty, b.text)
+    gpu.set(tx, ty, label)
 end
 
 function UI.checkButtons(x, y)
@@ -909,7 +962,7 @@ function UI.drawAdminAddItem(mw)
         local item = Hardware.getDepositItem()
         if not item then UI.setMessage("Сундук пуст!", config.colors.textRed, 4); UI.draw(); return end
         UI.editItem.name = item.name
-        UI.editItem.label = item.label or item.name  -- русское имя из игры
+        UI.editItem.label = tostring(item.label or item.name or "")  -- русское имя из игры
         UI.editItem.price = UI.editItem.price or "1"
         UI.screen = "admin_edit_item"; UI.draw()
     end)
@@ -927,7 +980,9 @@ function UI.drawAdminEditItem(mw)
 
     text(4, 10, "Отображаемое имя (можно на русском):", config.colors.textDark, config.colors.background)
     drawBox(4, 11, 44, 3, config.colors.textGold, config.colors.panelLight)
-    text(6, 12, UI.editItem.label, config.colors.textGold, config.colors.panelLight)
+    local lbl = UI.editItem.label
+    if not lbl or lbl == "" then lbl = "(нажми чтобы ввести)" end
+    text(6, 12, lbl, config.colors.textGold, config.colors.panelLight)
     UI.addButton(4, 11, 44, 3, "", 0x000000, 0x000000, function()
         UI.openInput("Имя предмета", UI.editItem.label, function(val)
             if val and val ~= "" then UI.editItem.label = val end; UI.draw()
@@ -939,7 +994,9 @@ function UI.drawAdminEditItem(mw)
         or ("Цена скупки в " .. config.currency.symbol .. ":")
     text(4, 15, priceLabel, config.colors.textDark, config.colors.background)
     drawBox(4, 16, 20, 3, config.colors.textGold, config.colors.panelLight)
-    text(6, 17, UI.editItem.price, config.colors.textGold, config.colors.panelLight)
+    local pr = UI.editItem.price
+    if not pr or pr == "" then pr = "1" end
+    text(6, 17, pr, config.colors.textGold, config.colors.panelLight)
     UI.addButton(4, 16, 20, 3, "", 0x000000, 0x000000, function()
         UI.openInput("Цена", UI.editItem.price, function(val)
             if val and tonumber(val) and tonumber(val) >= 0 then UI.editItem.price = val end; UI.draw()
