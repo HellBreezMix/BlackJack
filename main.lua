@@ -253,109 +253,123 @@ function Hardware.exportPayout(itemName, count)
     count = math.floor(count)
     local side = config.hardware.meSide
 
-    -- 1) Найти предмет в сети
+    -- Найти предмет в ME
     local items = nil
     local ok, res = pcall(function()
         return Hardware.me.getItemsInNetwork({ name = itemName })
     end)
-    if ok and res and #res > 0 then
-        items = res
-    else
+    if (not ok) or (not res) or (#res == 0) then
         ok, res = pcall(function() return Hardware.me.getItemsInNetwork() end)
         if ok and res then
             items = {}
             for _, it in ipairs(res) do
-                if it.name == itemName or (it.id and tostring(it.id) == itemName) then
+                local n = it.name or it.id
+                if n == itemName or tostring(n) == tostring(itemName) then
                     table.insert(items, it)
                 end
             end
         end
+    else
+        items = res
     end
     if not items or #items == 0 then
         return 0, "В ME сети нет: " .. tostring(itemName)
     end
 
     local available = 0
-    for _, it in ipairs(items) do available = available + (it.size or it.qty or 0) end
-    if available < 1 then
-        return 0, "В ME сети 0 шт: " .. tostring(itemName)
+    for _, it in ipairs(items) do
+        available = available + (tonumber(it.size) or tonumber(it.qty) or 0)
     end
-    if available < count then count = available end
+    if available < 1 then
+        return 0, "В ME 0 шт: " .. tostring(itemName)
+    end
+    if count > available then count = available end
 
     local stack = items[1]
+    local dmg = tonumber(stack.damage) or 0
+    local name = stack.name or itemName
 
-    -- 2) Разные форматы fingerprint / filter для разных сборок AE2
-    local filters = {}
-
-    -- полный объект из сети (часто уже содержит fingerprint)
-    table.insert(filters, stack)
-
-    -- поле fingerprint, если есть
-    if stack.fingerprint then
-        table.insert(filters, stack.fingerprint)
+    -- Чистые fingerprint-таблицы (без size и лишних полей — они ломают конвертер)
+    local filters = {
+        { name = name, damage = dmg },
+        { id = name, damage = dmg },
+        { id = name },
+        { name = name },
+        { name = name, damage = dmg, label = stack.label },
+    }
+    -- если у стака есть готовый fingerprint-табличный
+    if type(stack.fingerprint) == "table" then
+        table.insert(filters, 1, stack.fingerprint)
     end
 
-    -- классический name + damage
-    table.insert(filters, {
-        name = stack.name or itemName,
-        damage = stack.damage or 0
-    })
-
-    -- вариант с id (ошибка требовала поле id)
-    table.insert(filters, {
-        id = stack.name or itemName,
-        name = stack.name or itemName,
-        damage = stack.damage or 0
-    })
-    table.insert(filters, { id = stack.name or itemName })
-    table.insert(filters, { id = itemName, damage = 0 })
-
-    -- label иногда помогает
-    if stack.label then
-        table.insert(filters, {
-            name = stack.name or itemName,
-            label = stack.label,
-            damage = stack.damage or 0,
-            id = stack.name or itemName
-        })
+    local sides = { side }
+    -- дубли только если side числовой top=1
+    if side == 1 then
+        table.insert(sides, "UP")
+        table.insert(sides, "up")
     end
 
-    local sides = { side, "up", "UP", 1, 0 }
-
-    local lastErr = nil
-    for _, filter in ipairs(filters) do
+    local errors = {}
+    for fi, filter in ipairs(filters) do
         for _, s in ipairs(sides) do
+            -- signature: exportItem(filter, side, count)
             local ok2, moved = pcall(function()
                 return Hardware.me.exportItem(filter, s, count)
             end)
             if ok2 then
                 moved = tonumber(moved) or 0
-                if moved > 0 then
-                    return moved, nil
-                end
-                lastErr = "exportItem вернул 0"
+                if moved > 0 then return moved, nil end
+                table.insert(errors, "f" .. fi .. "s вернул 0")
             else
-                lastErr = tostring(moved)
+                local err = tostring(moved)
+                -- пропускаем заведомо бесполезные
+                if not err:find("9%.0") and not err:find("value %d") then
+                    table.insert(errors, err)
+                else
+                    table.insert(errors, err)
+                end
             end
-        end
-    end
 
-    -- 3) Database-слоты (если на адаптере Database-карта)
-    for dbSlot = 1, 9 do
-        for _, s in ipairs(sides) do
-            local ok3, moved = pcall(function()
-                return Hardware.me.exportItem(dbSlot, s, count)
+            -- alt signature: exportItem(side, filter, count)
+            ok2, moved = pcall(function()
+                return Hardware.me.exportItem(s, filter, count)
             end)
-            if ok3 then
+            if ok2 then
                 moved = tonumber(moved) or 0
                 if moved > 0 then return moved, nil end
-            else
-                lastErr = tostring(moved)
             end
         end
     end
 
-    return 0, "Ошибка exportItem: " .. tostring(lastErr)
+    -- Database store → export (если есть database-компонент)
+    local dbAddr = nil
+    for addr in component.list("database") do
+        dbAddr = addr
+        break
+    end
+    if dbAddr then
+        local db = component.proxy(dbAddr)
+        pcall(function() if db.clear then db.clear(1) end end)
+        local stored = pcall(function()
+            return Hardware.me.store({ name = name, damage = dmg }, dbAddr, 1)
+        end)
+        if stored then
+            for _, s in ipairs(sides) do
+                -- некоторые сборки: export из слота БД через интерфейс
+                local ok3, moved = pcall(function()
+                    return Hardware.me.exportItem(1, s, count)
+                end)
+                if ok3 and tonumber(moved) and tonumber(moved) > 0 then
+                    return tonumber(moved), nil
+                end
+            end
+        end
+    end
+
+    local last = errors[#errors] or "неизвестная ошибка"
+    -- короче для UI
+    if #last > 80 then last = last:sub(1, 77) .. "..." end
+    return 0, last
 end
 
 --------------------------------------------------
@@ -373,19 +387,19 @@ Cards.ranks = {
     {id="9", v=9}, {id="10", v=10}, {id="J", v=10}, {id="Q", v=10}, {id="K", v=10}
 }
 
--- x:1..7  y:1..5  (внутри рамки карты 9x7)
+-- Пипы только в центре (x:2..6, y:2..4), ранги в углах отдельно
 local faceLayout = {
     ["A"]  = {{4,3}},
-    ["2"]  = {{4,1},{4,5}},
-    ["3"]  = {{4,1},{4,3},{4,5}},
-    ["4"]  = {{2,1},{6,1},{2,5},{6,5}},
-    ["5"]  = {{2,1},{6,1},{4,3},{2,5},{6,5}},
-    ["6"]  = {{2,1},{6,1},{2,3},{6,3},{2,5},{6,5}},
-    ["7"]  = {{4,1},{2,2},{6,2},{2,3},{6,3},{2,5},{6,5}},
-    ["8"]  = {{2,1},{6,1},{2,2},{6,2},{2,4},{6,4},{2,5},{6,5}},
-    ["9"]  = {{2,1},{6,1},{2,2},{6,2},{4,3},{2,4},{6,4},{2,5},{6,5}},
-    ["10"] = {{2,1},{6,1},{2,2},{6,2},{2,3},{6,3},{2,4},{6,4},{2,5},{6,5}},
-    ["J"] = "J", ["Q"] = "Q", ["K"] = "K"
+    ["2"]  = {{4,2},{4,4}},
+    ["3"]  = {{4,2},{4,3},{4,4}},
+    ["4"]  = {{2,2},{6,2},{2,4},{6,4}},
+    ["5"]  = {{2,2},{6,2},{4,3},{2,4},{6,4}},
+    ["6"]  = {{2,2},{6,2},{2,3},{6,3},{2,4},{6,4}},
+    ["7"]  = {{2,2},{6,2},{4,2},{2,3},{6,3},{2,4},{6,4}},
+    ["8"]  = {{2,2},{6,2},{2,3},{6,3},{2,4},{6,4},{4,2},{4,4}},
+    ["9"]  = {{2,2},{6,2},{2,3},{4,3},{6,3},{2,4},{6,4},{4,2},{4,4}},
+    ["10"] = {{2,2},{6,2},{2,3},{6,3},{2,4},{6,4},{3,2},{5,2},{3,4},{5,4}},
+    ["J"] = "face", ["Q"] = "face", ["K"] = "face"
 }
 
 function Cards.createDeck(count)
@@ -557,7 +571,8 @@ local function drawCard(x, y, card, hidden)
     local cw, ch = 9, 7
     if hidden then
         fill(x, y, cw, ch, config.colors.cardBack)
-        gpu.setForeground(0x4A2020); gpu.setBackground(config.colors.cardBack)
+        gpu.setForeground(0x4A2020)
+        gpu.setBackground(config.colors.cardBack)
         for dy = 1, ch - 2 do
             for dx = 1, cw - 2 do
                 if (dx + dy) % 2 == 0 then gpu.set(x + dx, y + dy, "░") end
@@ -565,30 +580,47 @@ local function drawCard(x, y, card, hidden)
         end
         return
     end
+
     fill(x, y, cw, ch, config.colors.cardFace)
-    gpu.setForeground(0x444444); gpu.setBackground(config.colors.cardFace)
-    for i = 0, cw - 1 do gpu.set(x + i, y, "─"); gpu.set(x + i, y + ch - 1, "─") end
-    for i = 0, ch - 1 do gpu.set(x, y + i, "│"); gpu.set(x + cw - 1, y + i, "│") end
-    gpu.set(x, y, "┌"); gpu.set(x + cw - 1, y, "┐")
-    gpu.set(x, y + ch - 1, "└"); gpu.set(x + cw - 1, y + ch - 1, "┘")
+    gpu.setForeground(0x444444)
+    gpu.setBackground(config.colors.cardFace)
+    for i = 0, cw - 1 do
+        gpu.set(x + i, y, "─")
+        gpu.set(x + i, y + ch - 1, "─")
+    end
+    for i = 0, ch - 1 do
+        gpu.set(x, y + i, "│")
+        gpu.set(x + cw - 1, y + i, "│")
+    end
+    gpu.set(x, y, "┌")
+    gpu.set(x + cw - 1, y, "┐")
+    gpu.set(x, y + ch - 1, "└")
+    gpu.set(x + cw - 1, y + ch - 1, "┘")
 
     local col = Cards.suitColors[card.suit] or 0x111111
-    local layout = faceLayout[card.rank]
-    if type(layout) == "string" then
-        text(x + 1, y + 1, card.rank, col, config.colors.cardFace)
-        text(x + 1, y + 2, card.suit, col, config.colors.cardFace)
-        text(x + cw - 2, y + ch - 2, card.rank, col, config.colors.cardFace)
+    local rank = card.rank
+    local layout = faceLayout[rank]
+
+    if layout == "face" then
+        -- J/Q/K: крупный ранг + масть по центру
+        text(x + 1, y + 1, rank, col, config.colors.cardFace)
+        text(x + 4, y + 3, card.suit, col, config.colors.cardFace)
+        text(x + cw - 2, y + ch - 2, rank, col, config.colors.cardFace)
     else
-        text(x + 1, y + 1, card.rank, col, config.colors.cardFace)
-        if card.rank == "10" then
+        -- Ранг в углах
+        if rank == "10" then
+            -- "10" занимает 2 символа — рисуем аккуратно
+            text(x + 1, y + 1, "10", col, config.colors.cardFace)
             text(x + cw - 3, y + ch - 2, "10", col, config.colors.cardFace)
         else
-            text(x + cw - 2, y + ch - 2, card.rank, col, config.colors.cardFace)
+            text(x + 1, y + 1, rank, col, config.colors.cardFace)
+            text(x + cw - 2, y + ch - 2, rank, col, config.colors.cardFace)
         end
-        if layout then
+        -- Пипы строго внутри, не на рамке и не на углах с рангом
+        if type(layout) == "table" then
             for _, pos in ipairs(layout) do
                 local px, py = pos[1], pos[2]
-                if px >= 1 and px <= 7 and py >= 1 and py <= 5 then
+                if px >= 2 and px <= 6 and py >= 2 and py <= 4 then
                     text(x + px, y + py, card.suit, col, config.colors.cardFace)
                 end
             end
