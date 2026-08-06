@@ -1073,6 +1073,37 @@ local function drawCard(x, y, card, hidden)
     end
 end
 
+-- крупный блок счёта справа от карт
+local function drawScoreBadge(x, y, label, score, accent)
+    accent = accent or config.colors.textGold
+    local sw, sh = 14, 7
+    fill(x, y, sw, sh, 0x083528)
+    gpu.setForeground(0x1A7A4A)
+    gpu.setBackground(0x083528)
+    for i = 0, sw - 1 do
+        gpu.set(x + i, y, "─"); gpu.set(x + i, y + sh - 1, "─")
+    end
+    for i = 0, sh - 1 do
+        gpu.set(x, y + i, "│"); gpu.set(x + sw - 1, y + i, "│")
+    end
+    gpu.set(x, y, "┌"); gpu.set(x + sw - 1, y, "┐")
+    gpu.set(x, y + sh - 1, "└"); gpu.set(x + sw - 1, y + sh - 1, "┘")
+    -- подпись
+    local lx = x + math.floor((sw - unicode.len(label)) / 2)
+    text(lx, y + 1, label, config.colors.text, 0x083528)
+    -- счёт крупно (символы с пробелами для «масштаба»)
+    local s = tostring(score)
+    local spaced = s
+    if unicode.len(s) == 1 then
+        spaced = " " .. s .. " "
+    elseif unicode.len(s) == 2 then
+        spaced = s:sub(1,1) .. " " .. s:sub(2,2)
+    end
+    local sx = x + math.floor((sw - unicode.len(spaced)) / 2)
+    text(sx, y + 3, spaced, accent, 0x083528)
+    text(sx, y + 4, spaced, accent, 0x083528)  -- двойная строка = визуально выше
+end
+
 local function drawHand(x, y, hand, hideFirst)
     for i, c in ipairs(hand) do
         drawCard(x + (i - 1) * CARD_STEP, y, c, hideFirst and i == 1)
@@ -1092,10 +1123,10 @@ end
 local function handSlotPos(mw, who, index)
     local n = math.max(1, index)
     local hw = (n - 1) * CARD_STEP + CARD_W
-    local hx = math.max(3, math.floor((mw - hw) / 2) + 1)
+    -- карты левее центра, справа место под счёт
+    local hx = math.max(3, math.floor((mw - hw) / 2) - 6)
     local x = hx + (index - 1) * CARD_STEP
-    -- дилер чуть ниже центра верха, игрок ниже
-    local y = (who == "player") and 22 or 8
+    local y = (who == "player") and 24 or 7
     return x, y
 end
 
@@ -1356,27 +1387,31 @@ function UI.drawMainArea()
             return (n - 1) * CARD_STEP + CARD_W
         end
         local function handX(n)
-            return math.max(3, math.floor((mw - handWidth(n)) / 2) + 1)
+            -- сдвиг влево, справа место под бейдж счёта
+            return math.max(3, math.floor((mw - handWidth(n)) / 2) - 6)
         end
 
-        -- таблица ценностей
         local ly = UI.h - 6
         text(3, ly,     "Карта      Очки", config.colors.textBlue, config.colors.background)
         text(3, ly + 1, "2-9        номинал", config.colors.textDark, config.colors.background)
         text(3, ly + 2, "10/J/Q/K   10", config.colors.textDark, config.colors.background)
         text(3, ly + 3, "Туз (A)    1 или 11", config.colors.textDark, config.colors.background)
 
-        -- ДИЛЕР крупно
+        -- ДИЛЕР: карты + крупный счёт справа
+        local dCount = math.max(1, #Game.dealer.hand)
+        local dHx = handX(dCount)
+        local dHy = 7
+        drawHand(dHx, dHy, Game.dealer.hand, hideDealer)
         local dScore = hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand))
-        centerText(6, "◆  ДИЛЕР  ◆", config.colors.text, config.colors.background, mw)
-        centerText(7, dScore, config.colors.textGold, config.colors.background, mw)
-        drawHand(handX(#Game.dealer.hand > 0 and #Game.dealer.hand or 1), 8, Game.dealer.hand, hideDealer)
+        drawScoreBadge(dHx + handWidth(dCount) + 3, dHy + 1, "ДИЛЕР", dScore, config.colors.textGold)
 
-        -- ВЫ крупно
+        -- ВЫ: ниже, больше зазор
+        local pCount = math.max(1, #Game.player.hand)
+        local pHx = handX(pCount)
+        local pHy = 24
+        drawHand(pHx, pHy, Game.player.hand, false)
         local pScore = tostring(Cards.handValue(Game.player.hand))
-        centerText(20, "◆  ВЫ  ◆", config.colors.text, config.colors.background, mw)
-        centerText(21, pScore, config.colors.textGold, config.colors.background, mw)
-        drawHand(handX(#Game.player.hand > 0 and #Game.player.hand or 1), 22, Game.player.hand, false)
+        drawScoreBadge(pHx + handWidth(pCount) + 3, pHy + 1, "ВЫ", pScore, config.colors.textGold)
 
         if Game.state == "dealing" or Game.state == "dealer_turn" or (UI.anim and UI.anim.card) then
             drawShoe(mw)
@@ -1385,10 +1420,12 @@ function UI.drawMainArea()
             drawCard(UI.anim.x, UI.anim.y, UI.anim.card, UI.anim.hidden ~= false)
         end
 
-        centerText(34, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
+        centerText(36, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
 
-        local btnY = 36
+        local btnY = 38
         local cx = math.floor(mw / 2)
+        if UI.h < 42 then btnY = UI.h - 5 end
+
         if UI.screen == "playing" and not Game.finished and Game.state == "playing" then
             UI.addButton(cx - 14, btnY, 12, 3, "ВЗЯТЬ", config.colors.buttonGreen, 0xFFFFFF, function()
                 if Game.state ~= "playing" or UI.anim then return end
@@ -1912,8 +1949,13 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 10
+    local steps = 12
     local step = 0
+    local prevX, prevY = nil, nil
+
+    -- один полный кадр в начале (стол + руки), дальше только летящая карта
+    UI.anim = nil
+    UI.draw()
 
     UI.anim = {
         card = card,
@@ -1922,33 +1964,43 @@ function UI.flyCard(who, card, faceDown, onDone)
         who = who
     }
 
+    local function eraseAt(x, y)
+        if not x then return end
+        -- затираем след карты цветом сукна (без полного redraw)
+        gpu.setBackground(FELT_BASE)
+        gpu.fill(x, y, CARD_W, CARD_H, " ")
+    end
+
     local function frame()
         step = step + 1
         local t = step / steps
-        -- smoothstep
         local e = t * t * (3 - 2 * t)
-        UI.anim.x = math.floor(shoeX + (tx - shoeX) * e + 0.5)
-        UI.anim.y = math.floor(shoeY + (ty - shoeY) * e + 0.5)
+        local nx = math.floor(shoeX + (tx - shoeX) * e + 0.5)
+        local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
+
+        eraseAt(prevX, prevY)
+        UI.anim.x, UI.anim.y = nx, ny
         UI.anim.hidden = true
-        -- частичная отрисовка без полного clear felt — через UI.drawFast если есть
-        UI.draw()
+        drawCard(nx, ny, card, true)
+        prevX, prevY = nx, ny
+
         if step < steps then
-            UI.schedule(0.04, frame)
+            UI.schedule(0.035, frame)
         else
-            UI.anim.x = tx
-            UI.anim.y = ty
+            eraseAt(prevX, prevY)
+            -- финальная позиция + переворот
+            UI.anim.x, UI.anim.y = tx, ty
             UI.anim.hidden = faceDown and true or false
-            UI.draw()
-            UI.schedule(0.1, function()
+            drawCard(tx, ty, card, faceDown and true or false)
+            UI.schedule(0.08, function()
                 UI.anim = nil
                 table.insert(hand, card)
-                UI.draw()
+                UI.draw()  -- один полный кадр после прилёта
                 if onDone then onDone() end
             end)
         end
     end
-    UI.draw()
-    UI.schedule(0.03, frame)
+    UI.schedule(0.02, frame)
 end
 
 -- Анимация раздачи: игрок, дилер, игрок, дилер (с полётом)
