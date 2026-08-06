@@ -741,9 +741,10 @@ local function paintFeltToActive(w, h)
     gpu.setForeground(FELT_PAT)
     local suits = { "♠", "♥", "♦", "♣" }
     local si = 1
-    for row = 1, h, 3 do
-        local shift = (math.floor((row - 1) / 3) % 2) * 2
-        for col = 1 + shift, w, 5 do
+    -- крупнее шаг = масти заметнее на столе
+    for row = 2, h - 1, 2 do
+        local shift = (math.floor((row - 2) / 2) % 2) * 2
+        for col = 2 + shift, w - 1, 4 do
             gpu.set(col, row, suits[si])
             si = si % 4 + 1
         end
@@ -796,7 +797,8 @@ local function drawScreen()
         pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
         if useBuf then pcall(gpu.setActiveBuffer, _screenBuf) end
     else
-        fill(1, 1, UI.w, UI.h, FELT_BASE)
+        -- буфера нет — рисуем узор напрямую (масти на столе всегда видны)
+        paintFeltToActive(UI.w, UI.h)
     end
 
     UI.drawHeader()
@@ -848,36 +850,14 @@ end
 local CARD_W, CARD_H = 13, 10
 local CARD_STEP = 14
 
-local function drawCard(x, y, card, hidden)
-    local cw, ch = CARD_W, CARD_H
-    if hidden then
-        fill(x, y, cw, ch, config.colors.cardBack)
-        gpu.setForeground(0x4A2020)
-        gpu.setBackground(config.colors.cardBack)
-        for dy = 1, ch - 2 do
-            for dx = 1, cw - 2 do
-                if (dx + dy) % 2 == 0 then gpu.set(x + dx, y + dy, "░") end
-            end
-        end
-        -- рамка рубашки
-        gpu.setForeground(0x2A1010)
-        for i = 0, cw - 1 do
-            gpu.set(x + i, y, "─"); gpu.set(x + i, y + ch - 1, "─")
-        end
-        for i = 0, ch - 1 do
-            gpu.set(x, y + i, "│"); gpu.set(x + cw - 1, y + i, "│")
-        end
-        return
-    end
-
-    fill(x, y, cw, ch, config.colors.cardFace)
-    gpu.setForeground(0x333333)
-    gpu.setBackground(config.colors.cardFace)
-    for i = 0, cw - 1 do
+local function drawCardFrame(x, y, cw, ch, fg, bg)
+    gpu.setForeground(fg)
+    gpu.setBackground(bg)
+    for i = 1, cw - 2 do
         gpu.set(x + i, y, "─")
         gpu.set(x + i, y + ch - 1, "─")
     end
-    for i = 0, ch - 1 do
+    for i = 1, ch - 2 do
         gpu.set(x, y + i, "│")
         gpu.set(x + cw - 1, y + i, "│")
     end
@@ -885,29 +865,56 @@ local function drawCard(x, y, card, hidden)
     gpu.set(x + cw - 1, y, "┐")
     gpu.set(x, y + ch - 1, "└")
     gpu.set(x + cw - 1, y + ch - 1, "┘")
+end
+
+local function drawCard(x, y, card, hidden)
+    local cw, ch = CARD_W, CARD_H
+    if hidden then
+        fill(x, y, cw, ch, config.colors.cardBack)
+        gpu.setForeground(0x5A2828)
+        gpu.setBackground(config.colors.cardBack)
+        for dy = 1, ch - 2 do
+            for dx = 1, cw - 2 do
+                if (dx + dy) % 2 == 0 then gpu.set(x + dx, y + dy, "░") end
+            end
+        end
+        drawCardFrame(x, y, cw, ch, 0x3A1818, config.colors.cardBack)
+        return
+    end
+
+    fill(x, y, cw, ch, config.colors.cardFace)
+    drawCardFrame(x, y, cw, ch, 0x222222, config.colors.cardFace)
 
     local col = Cards.suitColors[card.suit] or 0x111111
     local rank = card.rank
     local layout = faceLayout[rank]
+    local face = config.colors.cardFace
 
     if layout == "face" then
-        text(x + 1, y + 1, rank, col, config.colors.cardFace)
-        text(x + 6, y + 4, card.suit, col, config.colors.cardFace)
-        text(x + 6, y + 5, rank, col, config.colors.cardFace)
-        text(x + cw - 2, y + ch - 2, rank, col, config.colors.cardFace)
+        -- крупные ранг + масть
+        text(x + 1, y + 1, rank, col, face)
+        text(x + 1, y + 2, card.suit, col, face)
+        text(x + 6, y + 4, rank, col, face)
+        text(x + 6, y + 5, card.suit, col, face)
+        text(x + cw - 2, y + ch - 2, rank, col, face)
+        text(x + cw - 2, y + ch - 3, card.suit, col, face)
     else
         if rank == "10" then
-            text(x + 1, y + 1, "10", col, config.colors.cardFace)
-            text(x + cw - 3, y + ch - 2, "10", col, config.colors.cardFace)
+            text(x + 1, y + 1, "10", col, face)
+            text(x + 1, y + 2, card.suit, col, face)
+            text(x + cw - 3, y + ch - 2, "10", col, face)
+            text(x + cw - 2, y + ch - 3, card.suit, col, face)
         else
-            text(x + 1, y + 1, rank, col, config.colors.cardFace)
-            text(x + cw - 2, y + ch - 2, rank, col, config.colors.cardFace)
+            text(x + 1, y + 1, rank, col, face)
+            text(x + 1, y + 2, card.suit, col, face)
+            text(x + cw - 2, y + ch - 2, rank, col, face)
+            text(x + cw - 2, y + ch - 3, card.suit, col, face)
         end
         if type(layout) == "table" then
             for _, pos in ipairs(layout) do
                 local px, py = pos[1], pos[2]
-                if px >= 2 and px <= cw - 3 and py >= 2 and py <= ch - 3 then
-                    text(x + px, y + py, card.suit, col, config.colors.cardFace)
+                if px >= 3 and px <= cw - 4 and py >= 3 and py <= ch - 4 then
+                    text(x + px, y + py, card.suit, col, face)
                 end
             end
         end
@@ -1075,38 +1082,34 @@ function UI.drawRules(mw, startY)
 end
 
 function UI.drawWelcomeArt(mw)
-    -- карты по краям стола, центр свободен под правила
+    -- карты только в безопасной зоне (не на сайдбар и не на нижнюю строку)
+    local maxX = mw - CARD_W - 1
+    local maxY = UI.h - CARD_H - 3
     local scatter = {
-        -- левый край
         {  2,  3, "A", "♠", false },
-        {  3, 11, "Q", "♥", false },
-        {  2, 19, "9", "♦", false },
-        { 12,  3, "7", "♥", true  },
-        -- верх
-        { 22,  2, "K", "♦", false },
-        { 34,  3, "3", "♣", false },
-        { 46,  2, "J", "♠", true  },
-        -- правый край (не залезая на сайдбар)
-        { mw - 12,  4, "5", "♦", true  },
-        { mw - 11, 12, "8", "♠", false },
-        { mw - 12, 20, "6", "♣", false },
-        -- низ
-        { 14, UI.h - 9, "K", "♠", false },
-        { 28, UI.h - 8, "2", "♣", true  },
-        { 42, UI.h - 9, "A", "♥", false },
-        -- пара «хаотичных» ближе к краям
-        { 10, 16, "10","♠", true  },
-        { mw - 20, 16, "4", "♥", true },
+        {  3, 14, "Q", "♥", false },
+        {  2, 25, "9", "♦", false },
+        { 16,  3, "7", "♥", true  },
+        { 30,  2, "K", "♦", false },
+        { 44,  3, "3", "♣", false },
+        { math.min(maxX, 58),  2, "J", "♠", true  },
+        { maxX,  5, "5", "♦", true  },
+        { maxX, 16, "8", "♠", false },
+        { maxX, 27, "6", "♣", false },
+        { 12, maxY, "K", "♠", false },
+        { 28, maxY, "2", "♣", true  },
+        { 44, maxY, "A", "♥", false },
+        { 18, 20, "10","♠", true  },
+        { math.min(maxX - 2, 50), 20, "4", "♥", true },
     }
     for _, c in ipairs(scatter) do
         local x, y = c[1], c[2]
         if x < 1 then x = 1 end
         if y < 2 then y = 2 end
-        if x + 9 < mw and y + 7 < UI.h then
+        if x + CARD_W <= mw and y + CARD_H <= UI.h - 2 then
             drawCard(x, y, { rank = c[3], suit = c[4] }, c[5])
         end
     end
-    -- чистый центр: заголовок + правила
     centerText(10, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.background, mw)
     UI.drawRules(mw, 13)
     centerText(20, "Нажмите кнопку для авторизации", config.colors.text, config.colors.background, mw)
@@ -1156,7 +1159,12 @@ function UI.drawMainArea()
         end
 
         -- легенда ценностей (левый нижний угол поля)
-        text(3, UI.h - 2, "A=1/11  2-9=ном.  10/J/Q/K=10", config.colors.textDark, config.colors.background)
+        -- таблица ценностей карт (левый угол)
+        local ly = UI.h - 6
+        text(3, ly,     "Карта      Очки", config.colors.textBlue, config.colors.background)
+        text(3, ly + 1, "2-9        номинал", config.colors.textDark, config.colors.background)
+        text(3, ly + 2, "10/J/Q/K   10", config.colors.textDark, config.colors.background)
+        text(3, ly + 3, "Туз (A)    1 или 11", config.colors.textDark, config.colors.background)
 
         -- ДИЛЕР: подпись и счёт в одну строку (счёт справа)
         local dScore = hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand))
@@ -1217,7 +1225,11 @@ function UI.drawMainArea()
     end
 
     if UI.message and computer.uptime() < UI.messageUntil then
-        centerText(UI.h - 1, UI.message, UI.messageColor, config.colors.background, mw)
+        -- полоска по центру, не режет крайние карты
+        local barW = math.min(mw - 4, math.max(30, unicode.len(UI.message) + 4))
+        local bx = math.floor((mw - barW) / 2) + 1
+        fill(bx, UI.h - 1, barW, 1, 0x083528)
+        centerText(UI.h - 1, UI.message, UI.messageColor, 0x083528, mw)
     end
 end
 
