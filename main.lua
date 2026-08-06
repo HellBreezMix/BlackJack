@@ -18,6 +18,17 @@ local computer      = require("computer")
 
 local config = require("config")
 
+-- Сукно стола (жёстко, не зависит от config)
+config.colors.background  = 0x0D6B3F
+config.colors.feltDark    = 0x0A5532
+config.colors.feltPattern = 0x14905A
+config.colors.panel       = 0x084028
+config.colors.panelLight  = 0x0C5A3A
+config.colors.header      = 0x063020
+config.colors.textDark    = 0xB8D4C0
+config.colors.button      = 0x1A6B42
+config.colors.tableGreen  = 0x0D6B3F
+
 --------------------------------------------------
 -- УТИЛИТЫ
 --------------------------------------------------
@@ -525,8 +536,29 @@ function UI.checkButtons(x, y)
 end
 
 local function fill(x, y, w, h, color)
-    gpu.setBackground(color); gpu.fill(x, y, w, h, " ")
+    gpu.setBackground(color)
+    gpu.fill(x, y, w, h, " ")
 end
+
+-- Фон сукна стола с узором мастей
+local FELT_BASE = 0x0D6B3F
+local FELT_PAT  = 0x1A9A5C
+
+local function drawFelt(x, y, w, h)
+    fill(x, y, w, h, FELT_BASE)
+    local suits = { "♠", "♥", "♦", "♣" }
+    gpu.setBackground(FELT_BASE)
+    gpu.setForeground(FELT_PAT)
+    local si = 1
+    for row = y, y + h - 1, 2 do
+        local shift = (math.floor((row - y) / 2) % 2) * 2
+        for col = x + shift, x + w - 1, 4 do
+            pcall(gpu.set, col, row, suits[si])
+            si = si % 4 + 1
+        end
+    end
+end
+
 
 local function text(x, y, str, fg, bg)
     if bg then gpu.setBackground(bg) end
@@ -645,7 +677,7 @@ function UI.drawInputModal()
     local boxH = 10
     local bx = math.floor((mw - boxW) / 2) + 1
     local by = math.floor((UI.h - boxH) / 2)
-    fill(1, 2, mw, UI.h - 1, 0x050505)
+    fill(1, 2, mw, UI.h - 1, 0x042818)
     drawBox(bx, by, boxW, boxH, config.colors.textBlue, config.colors.panel)
     centerText(by + 1, UI.input.title, config.colors.textBlue, config.colors.panel, mw)
     local fieldX, fieldW = bx + 2, boxW - 4
@@ -758,9 +790,8 @@ end
 
 --------------------------------------------------
 local function drawTree(x, y)
-    -- простая ёлка / дерево пикселями
-    local green = 0x2E8B57
-    local brown = 0x8B5A2B
+    local green = 0x3CFF7A
+    local brown = 0xC4A574
     local leaf = {
         "   ▲   ",
         "  ▲▲▲  ",
@@ -795,9 +826,9 @@ end
 function UI.drawWelcomeArt(mw)
     UI.drawDecor(mw)
     local cx = math.floor(mw / 2)
-    fill(cx - 18, 8, 36, 12, config.colors.tableGreen or 0x0B5C3A)
-    centerText(9, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.tableGreen or 0x0B5C3A, mw)
-    centerText(10, "♦              ♣", 0xCCCCCC, config.colors.tableGreen or 0x0B5C3A, mw)
+    fill(cx - 18, 8, 36, 12, config.colors.feltDark or 0x094D31)
+    centerText(9, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.feltDark or 0x094D31, mw)
+    centerText(10, "♦              ♣", 0xCCCCCC, config.colors.feltDark or 0x094D31, mw)
     drawCard(cx - 14, 12, { rank = "A", suit = "♠" }, false)
     drawCard(cx - 4,  12, { rank = "K", suit = "♥" }, false)
     drawCard(cx + 6,  12, { rank = "Q", suit = "♦" }, false)
@@ -807,7 +838,7 @@ end
 
 function UI.drawMainArea()
     local mw = UI.w - config.ui.sidebarWidth
-    fill(1, 2, mw, UI.h - 1, config.colors.background)
+    drawFelt(1, 2, mw, UI.h - 1)
     if UI.input.active then UI.drawInputModal(); return end
 
     if UI.screen == "main" then
@@ -879,7 +910,7 @@ end
 -- АДМИН
 --------------------------------------------------
 function UI.drawAdmin(mw)
-    fill(1, 2, mw, UI.h - 1, config.colors.background)
+    drawFelt(1, 2, mw, UI.h - 1)
     centerText(3, "АДМИН-ПАНЕЛЬ", config.colors.textBlue, config.colors.background, mw)
 
     local tabs = {
@@ -1022,7 +1053,7 @@ function UI.drawAdminLogs(mw)
 end
 
 function UI.drawAdminAddItem(mw)
-    fill(1, 2, mw, UI.h - 1, config.colors.background)
+    drawFelt(1, 2, mw, UI.h - 1)
     local title = UI.editItem.target == "payout" and "ПРЕДМЕТ ВЫПЛАТЫ" or "ДОБАВЛЕНИЕ ПРЕДМЕТА"
     centerText(5, title, config.colors.textBlue, config.colors.background, mw)
     centerText(9, "Положи предмет в левый сундук", config.colors.text, config.colors.background, mw)
@@ -1043,7 +1074,7 @@ function UI.drawAdminAddItem(mw)
 end
 
 function UI.drawAdminEditItem(mw)
-    fill(1, 2, mw, UI.h - 1, config.colors.background)
+    drawFelt(1, 2, mw, UI.h - 1)
     centerText(4, "НАСТРОЙКА ПРЕДМЕТА", config.colors.textBlue, config.colors.background, mw)
     text(4, 7, "ID: " .. (UI.editItem.name or "?"), config.colors.textDark, config.colors.background)
 
@@ -1099,8 +1130,7 @@ end
 
 function UI.draw()
     UI.clearButtons()
-    gpu.setBackground(config.colors.background)
-    gpu.fill(1, 1, UI.w, UI.h, " ")
+    drawFelt(1, 1, UI.w, UI.h)
     UI.drawHeader(); UI.drawSidebar(); UI.drawMainArea()
     if UI.alert then UI.drawAlert() end
     for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
@@ -1167,7 +1197,7 @@ function UI.drawAlert()
     local boxW, boxH = 36, 9
     local bx = math.floor((mw - boxW) / 2) + 1
     local by = math.floor((UI.h - boxH) / 2)
-    fill(1, 2, mw, UI.h - 1, 0x050505)
+    fill(1, 2, mw, UI.h - 1, 0x042818)
     drawBox(bx, by, boxW, boxH, config.colors.textRed, config.colors.panel)
     centerText(by + 2, UI.alert.title, config.colors.textRed, config.colors.panel, mw)
     UI.addButton(bx + math.floor((boxW - 12) / 2), by + 5, 12, 3, "ОК", config.colors.buttonGreen, 0xFFFFFF, function()
@@ -1247,6 +1277,12 @@ end
 
 --------------------------------------------------
 local function boot()
+    -- максимальная глубина цвета (иначе зелёный может стать чёрным)
+    pcall(function()
+        local d = gpu.maxDepth and gpu.maxDepth() or 8
+        gpu.setDepth(d)
+    end)
+
     local maxW, maxH = gpu.maxResolution()
     local targetW = math.min(160, maxW)
     local targetH = math.min(50, maxH)
@@ -1254,6 +1290,10 @@ local function boot()
     if targetH < 25 then targetH = maxH end
     pcall(gpu.setResolution, targetW, targetH)
     UI.w, UI.h = gpu.getResolution()
+
+    -- сразу заливаем сукно
+    pcall(gpu.setBackground, FELT_BASE)
+    pcall(gpu.fill, 1, 1, UI.w, UI.h, " ")
 
     ensureDir(config.paths.data)
     Players.load(); Settings.load(); Hardware.init(); loadLogsFromFile()
