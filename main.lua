@@ -234,7 +234,10 @@ function Settings.load()
         minBet = config.bet.min,
         maxBet = config.bet.max,
         buyPrices = normalizeBuyPrices(config.buyPrices),
-        payoutItem = nil
+        payoutItem = nil,
+        bjPayout = config.game.blackjackPayout or 2.5,
+        winPayout = config.game.winPayout or 2.0,
+        decks = config.game.decks or 6
     }
     local loaded = loadDB(config.paths.settings)
     if loaded then
@@ -242,6 +245,9 @@ function Settings.load()
         Settings.data.minBet = Settings.data.minBet or config.bet.min
         Settings.data.maxBet = Settings.data.maxBet or config.bet.max
         Settings.data.buyPrices = normalizeBuyPrices(Settings.data.buyPrices or config.buyPrices)
+        Settings.data.bjPayout = Settings.data.bjPayout or config.game.blackjackPayout or 2.5
+        Settings.data.winPayout = Settings.data.winPayout or config.game.winPayout or 2.0
+        Settings.data.decks = Settings.data.decks or config.game.decks or 6
     else
         Settings.data = def
     end
@@ -272,24 +278,78 @@ function Hardware.init()
     if component.isAvailable("me_interface") then Hardware.me = component.me_interface end
 end
 
-function Hardware.getDepositItem()
-    if not Hardware.transposer then return nil end
-    local ok, stack = pcall(Hardware.transposer.getStackInSlot, config.hardware.transposerSide, 1)
-    if ok and stack and stack.size and stack.size > 0 then
-        return { name = stack.name, label = stack.label or stack.name, damage = stack.damage or 0, size = stack.size }
+-- Все предметы в сундуке ставки (все слоты), сгруппированные по name
+function Hardware.getDepositItems()
+    if not Hardware.transposer then return {} end
+    local side = config.hardware.transposerSide
+    local size = 27
+    local okS, invSize = pcall(Hardware.transposer.getInventorySize, side)
+    if okS and invSize then size = invSize end
+
+    local groups = {}  -- name -> {name, label, damage, size, slots={}}
+    for slot = 1, size do
+        local ok, stack = pcall(Hardware.transposer.getStackInSlot, side, slot)
+        if ok and stack and stack.size and stack.size > 0 then
+            local n = stack.name
+            if not groups[n] then
+                groups[n] = {
+                    name = n,
+                    label = stack.label or n,
+                    damage = stack.damage or 0,
+                    size = 0,
+                    slots = {}
+                }
+            end
+            groups[n].size = groups[n].size + stack.size
+            table.insert(groups[n].slots, { slot = slot, size = stack.size })
+        end
     end
-    return nil
+    local list = {}
+    for _, g in pairs(groups) do table.insert(list, g) end
+    return list
 end
 
-function Hardware.consumeDeposit(count)
-    if not Hardware.transposer then return false end
-    count = count or 64
-    if Hardware.me and Hardware.me.importItem then
-        local ok = pcall(Hardware.me.importItem, config.hardware.transposerSide, 1, count)
-        if ok then return true end
+-- совместимость: первый стак
+function Hardware.getDepositItem()
+    local list = Hardware.getDepositItems()
+    if #list == 0 then return nil end
+    -- предпочитаем предмет из скупки
+    for _, g in ipairs(list) do
+        if Settings.getPrice(g.name) then return g end
     end
-    local ok = pcall(Hardware.transposer.transferItem, config.hardware.transposerSide, 0, count, 1)
-    return ok
+    return list[1]
+end
+
+-- Забрать count предметов name из всех слотов сундука
+function Hardware.consumeDeposit(itemName, count)
+    if not Hardware.transposer then return 0 end
+    local side = config.hardware.transposerSide
+    count = math.floor(count or 0)
+    if count <= 0 then return 0 end
+
+    local taken = 0
+    local size = 27
+    local okS, invSize = pcall(Hardware.transposer.getInventorySize, side)
+    if okS and invSize then size = invSize end
+
+    for slot = 1, size do
+        if taken >= count then break end
+        local ok, stack = pcall(Hardware.transposer.getStackInSlot, side, slot)
+        if ok and stack and stack.name == itemName and stack.size and stack.size > 0 then
+            local need = math.min(stack.size, count - taken)
+            -- в ME
+            local moved = false
+            if Hardware.me and Hardware.me.importItem then
+                local ok2 = pcall(Hardware.me.importItem, side, slot, need)
+                if ok2 then moved = true; taken = taken + need end
+            end
+            if not moved then
+                local ok3 = pcall(Hardware.transposer.transferItem, side, 0, need, slot)
+                if ok3 then taken = taken + need end
+            end
+        end
+    end
+    return taken
 end
 
 function Hardware.exportPayout(itemName, count)
@@ -300,22 +360,20 @@ function Hardware.exportPayout(itemName, count)
 
     local function countInNetwork()
         local total = 0
-        local ok, list = pcall(function()
+        local list = nil
+        local ok, res = pcall(function()
             return Hardware.me.getItemsInNetwork({ name = itemName })
         end)
-        if not ok or not list or #list == 0 then
-            ok, list = pcall(function() return Hardware.me.getItemsInNetwork() end)
-            if ok and list then
-                local filtered = {}
-                for _, it in ipairs(list) do
+        if ok and res and #res > 0 then
+            list = res
+        else
+            ok, res = pcall(function() return Hardware.me.getItemsInNetwork() end)
+            list = {}
+            if ok and res then
+                for _, it in ipairs(res) do
                     local n = it.name or it.id
-                    if tostring(n) == tostring(itemName) then
-                        table.insert(filtered, it)
-                    end
+                    if tostring(n) == tostring(itemName) then table.insert(list, it) end
                 end
-                list = filtered
-            else
-                list = {}
             end
         end
         for _, it in ipairs(list or {}) do
@@ -333,60 +391,41 @@ function Hardware.exportPayout(itemName, count)
     local stack = items[1]
     local name = tostring(stack.name or stack.id or itemName)
     local dmg = tonumber(stack.damage) or 0
+    local fingerprint = { id = name, name = name, damage = dmg, dmg = dmg }
+    if stack.id ~= nil then fingerprint.id = stack.id end
 
-    -- Один чистый fingerprint (поле id обязательно для твоего AE2)
-    -- id обязателен; dmg/damage — разные сборки AE2
-    local fingerprint = {
-        id = name,
-        name = name,
-        damage = dmg,
-        dmg = dmg
-    }
-    if stack.label then fingerprint.label = tostring(stack.label) end
-    -- если в стаке из сети уже был id другого вида — приоритет ему
-    if stack.id ~= nil and tostring(stack.id) ~= "" then
-        fingerprint.id = stack.id
-    end
+    -- Выдаём пачками по 64 (лимит стака), пока не наберём всю сумму
+    local totalMoved = 0
+    local lastErr = nil
+    while totalMoved < count do
+        local batch = math.min(64, count - totalMoved)
+        local before = countInNetwork()
 
-    local before = available
-
-    -- Единственная попытка exportItem (без перебора — иначе выдаёт несколько раз)
-    local ok, result = pcall(function()
-        return Hardware.me.exportItem(fingerprint, side, count)
-    end)
-
-    -- Считаем факт по остатку в сети (надёжнее, чем return value)
-    local after = countInNetwork()
-    local moved = before - after
-    if moved < 0 then moved = 0 end
-    if moved > count then moved = count end
-
-    if moved > 0 then
-        return moved, nil
-    end
-
-    -- Если не сработало — пробуем side "UP" один раз
-    if side == 1 or side == "UP" or side == "up" then
-        before = countInNetwork()
-        ok, result = pcall(function()
-            return Hardware.me.exportItem(fingerprint, "UP", count)
+        local ok, result = pcall(function()
+            return Hardware.me.exportItem(fingerprint, side, batch)
         end)
-        after = countInNetwork()
-        moved = before - after
+        if not ok then
+            ok, result = pcall(function()
+                return Hardware.me.exportItem(fingerprint, "UP", batch)
+            end)
+        end
+
+        local after = countInNetwork()
+        local moved = before - after
         if moved < 0 then moved = 0 end
-        if moved > 0 then return moved, nil end
+        if moved > batch then moved = batch end
+
+        if moved <= 0 then
+            lastErr = (not ok) and tostring(result) or "не удалось выдать пачку"
+            break
+        end
+        totalMoved = totalMoved + moved
     end
 
-    local err = "export не удался"
-    if not ok then
-        err = tostring(result)
-    elseif result ~= nil then
-        err = "export вернул: " .. tostring(result)
-    else
-        err = "предметы не списались из ME"
+    if totalMoved > 0 then
+        return totalMoved, (totalMoved < count) and ("частично " .. totalMoved .. "/" .. count) or nil
     end
-    if #err > 90 then err = err:sub(1, 87) .. "..." end
-    return 0, err
+    return 0, lastErr or "export не удался"
 end
 
 --------------------------------------------------
@@ -457,14 +496,14 @@ local Game = {
 }
 
 function Game.reset()
-    Game.deck = Cards.createDeck(config.game.decks)
+    Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6)
     Game.player = { hand = {}, standing = false }
     Game.dealer = { hand = {}, standing = false }
     Game.finished = false; Game.result = nil; Game.bet = 0; Game.state = "idle"
 end
 
 function Game.deal()
-    if #Game.deck < 4 then Game.deck = Cards.createDeck(config.game.decks) end
+    if #Game.deck < 4 then Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6) end
     Game.player.hand = { table.remove(Game.deck), table.remove(Game.deck) }
     Game.dealer.hand = { table.remove(Game.deck), table.remove(Game.deck) }
     Game.finished = false; Game.result = nil; Game.state = "playing"
@@ -496,9 +535,9 @@ end
 function Game.finish(result) Game.finished = true; Game.result = result; Game.state = "result" end
 
 function Game.payoutMultiplier()
-    if Game.result == "BLACKJACK" then return config.game.blackjackPayout end
-    if Game.result == "WIN" then return config.game.winPayout end
-    if Game.result == "DRAW" then return config.game.drawPayout end
+    if Game.result == "BLACKJACK" then return tonumber(Settings.data.bjPayout) or config.game.blackjackPayout or 2.5 end
+    if Game.result == "WIN" then return tonumber(Settings.data.winPayout) or config.game.winPayout or 2.0 end
+    if Game.result == "DRAW" then return config.game.drawPayout or 1.0 end
     return 0
 end
 
@@ -559,22 +598,53 @@ local function fill(x, y, w, h, color)
     gpu.fill(x, y, w, h, " ")
 end
 
--- Фон сукна стола с узором мастей
+-- Фон сукна стола
 local FELT_BASE = 0x0D6B3F
 local FELT_PAT  = 0x1A9A5C
+local _feltCache = { w = 0, h = 0, buf = nil }
 
 local function drawFelt(x, y, w, h)
+    -- быстрая заливка + редкий узор (меньше gpu.set = меньше лагов)
     fill(x, y, w, h, FELT_BASE)
-    local suits = { "♠", "♥", "♦", "♣" }
     gpu.setBackground(FELT_BASE)
     gpu.setForeground(FELT_PAT)
+    local suits = { "♠", "♥", "♦", "♣" }
     local si = 1
-    for row = y, y + h - 1, 2 do
-        local shift = (math.floor((row - y) / 2) % 2) * 2
-        for col = x + shift, x + w - 1, 4 do
-            pcall(gpu.set, col, row, suits[si])
+    for row = y, y + h - 1, 3 do
+        local shift = (math.floor((row - y) / 3) % 2) * 2
+        for col = x + shift, x + w - 1, 5 do
+            gpu.set(col, row, suits[si])
             si = si % 4 + 1
         end
+    end
+end
+
+local function drawScreen()
+    -- двойная буферизация если GPU умеет (убирает мигание)
+    local useBuf = false
+    local bufId = nil
+    if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
+        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+        if ok and id then
+            bufId = id
+            if pcall(gpu.setActiveBuffer, bufId) then
+                useBuf = true
+            end
+        end
+    end
+
+    UI.clearButtons()
+    drawFelt(1, 1, UI.w, UI.h)
+    UI.drawHeader()
+    UI.drawSidebar()
+    UI.drawMainArea()
+    if UI.alert then UI.drawAlert() end
+    for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+
+    if useBuf and bufId then
+        pcall(gpu.setActiveBuffer, 0)
+        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, bufId, 1, 1)
+        pcall(gpu.freeBuffer, bufId)
     end
 end
 
@@ -910,6 +980,7 @@ function UI.drawAdmin(mw)
         { id = "buy", title = "СКУПКА" },
         { id = "payout", title = "ВЫПЛАТА" },
         { id = "logs", title = "ЛОГИ" },
+        { id = "odds", title = "ВЕРОЯТН." },
     }
     local tx = 3
     for _, tab in ipairs(tabs) do
@@ -923,7 +994,8 @@ function UI.drawAdmin(mw)
     if UI.adminTab == "bets" then UI.drawAdminBets(mw)
     elseif UI.adminTab == "buy" then UI.drawAdminBuy(mw)
     elseif UI.adminTab == "payout" then UI.drawAdminPayout(mw)
-    elseif UI.adminTab == "logs" then UI.drawAdminLogs(mw) end
+    elseif UI.adminTab == "logs" then UI.drawAdminLogs(mw)
+    elseif UI.adminTab == "odds" then UI.drawAdminOdds(mw) end
 
     UI.addButton(4, UI.h - 3, 14, 2, "◄ НАЗАД", config.colors.button, config.colors.text, function()
         UI.screen = "main"; UI.adminTab = "bets"; UI.draw() end)
@@ -1058,6 +1130,58 @@ function UI.drawAdminLogs(mw)
     end)
 end
 
+
+function UI.drawAdminOdds(mw)
+    text(4, 8, "Настройка выплат и колоды:", config.colors.textBlue, config.colors.background)
+
+    text(4, 11, "Blackjack выплата (3:2 = 2.5):", config.colors.textDark, config.colors.background)
+    drawBox(4, 12, 18, 3, config.colors.textGold, config.colors.panelLight)
+    text(6, 13, tostring(Settings.data.bjPayout or 2.5), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(4, 12, 18, 3, "", 0x000000, 0x000000, function()
+        UI.openInput("Blackjack множитель", tostring(Settings.data.bjPayout or 2.5), function(val)
+            local n = tonumber(val)
+            if n and n >= 1 and n <= 10 then
+                Settings.data.bjPayout = n
+                Settings.save()
+            end
+            UI.draw()
+        end, 6)
+    end)
+    text(24, 13, "× ставка  (2.5 = 3:2)", config.colors.textDark, config.colors.background)
+
+    text(4, 16, "Обычная победа (1:1 = 2.0):", config.colors.textDark, config.colors.background)
+    drawBox(4, 17, 18, 3, config.colors.textGold, config.colors.panelLight)
+    text(6, 18, tostring(Settings.data.winPayout or 2.0), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(4, 17, 18, 3, "", 0x000000, 0x000000, function()
+        UI.openInput("Множитель победы", tostring(Settings.data.winPayout or 2.0), function(val)
+            local n = tonumber(val)
+            if n and n >= 1 and n <= 10 then
+                Settings.data.winPayout = n
+                Settings.save()
+            end
+            UI.draw()
+        end, 6)
+    end)
+    text(24, 18, "× ставка  (2.0 = 1:1)", config.colors.textDark, config.colors.background)
+
+    text(4, 21, "Число колод (1–8):", config.colors.textDark, config.colors.background)
+    drawBox(4, 22, 18, 3, config.colors.textGold, config.colors.panelLight)
+    text(6, 23, tostring(Settings.data.decks or 6), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(4, 22, 18, 3, "", 0x000000, 0x000000, function()
+        UI.openInput("Колод", tostring(Settings.data.decks or 6), function(val)
+            local n = tonumber(val)
+            if n then
+                n = math.floor(n)
+                if n >= 1 and n <= 8 then
+                    Settings.data.decks = n
+                    Settings.save()
+                end
+            end
+            UI.draw()
+        end, 2)
+    end)
+end
+
 function UI.drawAdminAddItem(mw)
     drawFelt(1, 2, mw, UI.h - 1)
     local title = UI.editItem.target == "payout" and "ПРЕДМЕТ ВЫПЛАТЫ" or "ДОБАВЛЕНИЕ ПРЕДМЕТА"
@@ -1135,11 +1259,7 @@ function UI.drawAdminEditItem(mw)
 end
 
 function UI.draw()
-    UI.clearButtons()
-    drawFelt(1, 1, UI.w, UI.h)
-    UI.drawHeader(); UI.drawSidebar(); UI.drawMainArea()
-    if UI.alert then UI.drawAlert() end
-    for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+    drawScreen()
 end
 
 --------------------------------------------------
@@ -1191,16 +1311,35 @@ end
 
 function UI.doDeposit()
     if not UI.authorized then return end
-    local item = Hardware.getDepositItem()
-    if not item then UI.setMessage("Положите предмет в левый сундук", config.colors.textRed, 4); UI.draw(); return end
-    local price = Settings.getPrice(item.name)
-    if not price then UI.setMessage("Не скупается: " .. (item.label or item.name), config.colors.textRed, 4); UI.draw(); return end
-    local total = price * item.size
-    Hardware.consumeDeposit(item.size)
-    Players.addBalance(UI.playerName, total)
-    local label = Settings.getLabel(item.name)
-    UI.setMessage("+" .. total .. " " .. config.currency.symbol, config.colors.textGreen, 4)
-    log("ПОПОЛНЕНИЕ", UI.playerName, string.format("Сдано: %s(x%d) Зачислено: %s %s", label, item.size, total, config.currency.symbol))
+    local groups = Hardware.getDepositItems()
+    if #groups == 0 then
+        UI.setMessage("Положите предметы в левый сундук", config.colors.textRed, 4)
+        UI.draw(); return
+    end
+
+    local totalCredit = 0
+    local details = {}
+    for _, g in ipairs(groups) do
+        local price = Settings.getPrice(g.name)
+        if price then
+            local taken = Hardware.consumeDeposit(g.name, g.size)
+            if taken > 0 then
+                local sum = price * taken
+                totalCredit = totalCredit + sum
+                table.insert(details, string.format("%s(x%d)", Settings.getLabel(g.name), taken))
+            end
+        end
+    end
+
+    if totalCredit <= 0 then
+        UI.setMessage("Нет скупаемых предметов в сундуке", config.colors.textRed, 4)
+        UI.draw(); return
+    end
+
+    Players.addBalance(UI.playerName, totalCredit)
+    UI.setMessage("+" .. fmtMoney(totalCredit) .. " " .. config.currency.symbol, config.colors.textGreen, 4)
+    log("ПОПОЛНЕНИЕ", UI.playerName, string.format("Сдано: %s Зачислено: %s %s",
+        table.concat(details, ", "), fmtMoney(totalCredit), config.currency.symbol))
     UI.draw()
 end
 
