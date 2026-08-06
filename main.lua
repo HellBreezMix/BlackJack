@@ -4,19 +4,48 @@
 -- Автор: hellbreez + Grok
 --------------------------------------------------
 
-package.path = "/BlackJack/?.lua;" .. package.path
+-- пути поиска config.lua
+package.path = "/BlackJack/?.lua;/home/BlackJack/?.lua;" .. (package.path or "")
 
-local component     = require("component")
-local event         = require("event")
-local filesystem    = require("filesystem")
-local serialization = require("serialization")
-local term          = require("term")
-local unicode       = require("unicode")
-local keyboard      = require("keyboard")
-local gpu           = component.gpu
-local computer      = require("computer")
+local function safeRequire(name)
+    local ok, mod = pcall(require, name)
+    if ok then return mod end
+    error("Не найден модуль: " .. tostring(name) .. " (" .. tostring(mod) .. ")")
+end
 
-local config = require("config")
+local component     = safeRequire("component")
+local event         = safeRequire("event")
+local filesystem    = safeRequire("filesystem")
+local serialization = safeRequire("serialization")
+local term          = safeRequire("term")
+local unicode       = safeRequire("unicode")
+local keyboard      = safeRequire("keyboard")
+local computer      = safeRequire("computer")
+
+-- GPU: primary или первый доступный
+local gpu = nil
+if component.isAvailable and component.isAvailable("gpu") then
+    gpu = component.getPrimary and component.getPrimary("gpu") or component.gpu
+else
+    for addr in component.list("gpu") do
+        gpu = component.proxy(addr)
+        break
+    end
+end
+if not gpu then
+    print("ОШИБКА: GPU не найден. Подключите монитор и видеокарту.")
+    return
+end
+
+print("BlackJack: загрузка...")
+
+local okCfg, config = pcall(require, "config")
+if not okCfg or not config then
+    print("ОШИБКА config.lua: " .. tostring(config))
+    print("Положи config.lua в /BlackJack/config.lua")
+    return
+end
+print("config OK")
 
 -- Сукно стола (жёстко, не зависит от config)
 config.colors.background  = 0x0D6B3F
@@ -2057,55 +2086,105 @@ end
 
 --------------------------------------------------
 local function boot()
-    -- максимальная глубина цвета (иначе зелёный может стать чёрным)
+    print("boot: GPU...")
     pcall(function()
-        local d = gpu.maxDepth and gpu.maxDepth() or 8
-        gpu.setDepth(d)
+        if gpu.maxDepth then gpu.setDepth(gpu.maxDepth()) end
     end)
 
-    local maxW, maxH = gpu.maxResolution()
-    local targetW = math.min(160, maxW)
-    local targetH = math.min(50, maxH)
-    if targetW < 80 then targetW = maxW end
-    if targetH < 25 then targetH = maxH end
+    local maxW, maxH = 80, 25
+    pcall(function()
+        maxW, maxH = gpu.maxResolution()
+    end)
+    local targetW = math.min(160, maxW or 80)
+    local targetH = math.min(50, maxH or 25)
+    if targetW < 60 then targetW = maxW or 80 end
+    if targetH < 20 then targetH = maxH or 25 end
     pcall(gpu.setResolution, targetW, targetH)
-    UI.w, UI.h = gpu.getResolution()
+
+    UI.w, UI.h = 80, 25
+    pcall(function()
+        UI.w, UI.h = gpu.getResolution()
+    end)
+    if not UI.w or UI.w < 1 then UI.w = 80 end
+    if not UI.h or UI.h < 1 then UI.h = 25 end
+
     _feltReady = false
     _feltBuf = nil
     _screenBuf = nil
 
-    -- сразу заливаем сукно
-    pcall(gpu.setBackground, FELT_BASE)
+    pcall(gpu.setBackground, FELT_BASE or 0x0D6B3F)
     pcall(gpu.fill, 1, 1, UI.w, UI.h, " ")
 
+    print("boot: data " .. UI.w .. "x" .. UI.h)
     ensureDir(config.paths.data)
-    Players.load(); Settings.load(); Hardware.init(); loadLogsFromFile()
-    math.randomseed(computer.uptime() * 1000 + (computer.address():byte(1) or 0))
-    log("СИСТЕМА", "-", "BlackJack 2.2 @ " .. UI.w .. "x" .. UI.h)
-    UI.draw()
+    Players.load()
+    Settings.load()
+    Hardware.init()
+    pcall(loadLogsFromFile)
+
+    local seed = computer.uptime() * 1000
+    pcall(function()
+        local a = computer.address()
+        if a and a.byte then seed = seed + (a:byte(1) or 0) end
+    end)
+    math.randomseed(math.floor(seed))
+
+    pcall(log, "СИСТЕМА", "-", "BlackJack start " .. UI.w .. "x" .. UI.h)
+
+    print("boot: UI...")
+    local okDraw, drawErr = pcall(UI.draw)
+    if not okDraw then
+        error("UI.draw: " .. tostring(drawErr))
+    end
+    print("boot: OK, жду касаний (Ctrl+C выход)")
 
     while true do
-        local ev = { event.pull(0.5) }
-        local e = ev[1]
-        if e == "key_down" then
-            UI.handleKey(ev[3], ev[4])
-        elseif e == "touch" then
-            local x, y, _, player = ev[3], ev[4], ev[5], ev[6]
-            if UI.alert then
-                UI.checkButtons(x, y)
-            elseif UI.input.active then
-                UI.checkButtons(x, y)
-            elseif not UI.authorized then
-                -- сначала кнопки (АВТОРИЗАЦИЯ)
-                UI.checkButtons(x, y)
-                -- логин только после нажатия АВТОРИЗАЦИЯ
-                if UI.pendingAuth and player and player ~= "" then
-                    UI.pendingAuth = false
-                    UI.login(player)
+        local okEv, ev1, ev2, ev3, ev4, ev5, ev6 = pcall(event.pull, 0.5)
+        if not okEv then
+            -- игнорируем сбои event
+        else
+            local e = ev1
+            if e == "key_down" then
+                pcall(UI.handleKey, ev3, ev4)
+            elseif e == "touch" then
+                local x, y, player = ev3, ev4, ev6
+                local okTouch, tErr = pcall(function()
+                    if UI.alert then
+                        UI.checkButtons(x, y)
+                    elseif UI.input.active then
+                        UI.checkButtons(x, y)
+                    elseif not UI.authorized then
+                        UI.checkButtons(x, y)
+                        if UI.pendingAuth and player and player ~= "" then
+                            UI.pendingAuth = false
+                            UI.login(player)
+                        end
+                    else
+                        UI.sessionLeft = 120
+                        UI.checkButtons(x, y)
+                    end
+                end)
+                if not okTouch then
+                    pcall(log, "ОШИБКА", "-", "touch: " .. tostring(tErr))
                 end
-            else
-                UI.sessionLeft = 120; UI.checkButtons(x, y)
+            elseif e == "interrupted" then
+                break
             end
-        elseif e == "interrupted" then break end
+        end
     end
+end
+
+print("BlackJack: старт...")
+local ok, err = pcall(boot)
+if not ok then
+    pcall(function()
+        if term and term.clear then term.clear() end
+    end)
+    print("========================================")
+    print("Ошибка BlackJack:")
+    print(tostring(err))
+    print("========================================")
+    pcall(log, "ОШИБКА", "-", tostring(err))
+else
+    print("BlackJack: выход.")
 end
