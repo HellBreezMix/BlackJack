@@ -1,5 +1,5 @@
 --------------------------------------------------
--- BlackJack Casino v2.2
+-- BlackJack Casino v2.3
 -- main.lua
 -- Автор: hellbreez + Grok
 --------------------------------------------------
@@ -56,13 +56,27 @@ local function deepCopy(t)
 end
 
 --------------------------------------------------
+-- ВРЕМЯ (Москва, UTC+3)
+--------------------------------------------------
+local function moscowNow()
+    -- os.time() обычно UTC/серверное; Москва = UTC+3 (без перехода на летнее)
+    return os.time() + 3 * 3600
+end
+
+local function moscowDate(fmt, t)
+    fmt = fmt or "%Y-%m-%d %H:%M:%S"
+    t = t or moscowNow()
+    return os.date("!" .. fmt, t)  -- ! = интерпретировать как UTC, мы уже сдвинули
+end
+
+--------------------------------------------------
 -- ЛОГИ
 --------------------------------------------------
 local Logs = { entries = {} }
 
 local function log(kind, player, text)
     local entry = {
-        time   = os.time(),
+        time   = moscowNow(),
         kind   = kind or "INFO",
         player = player or "-",
         text   = text or ""
@@ -72,7 +86,7 @@ local function log(kind, player, text)
     ensureDir(config.paths.log)
     local f = io.open(config.paths.log, "a")
     if f then
-        local ts = os.date("%Y-%m-%d %H:%M:%S", entry.time)
+        local ts = moscowDate("%Y-%m-%d %H:%M:%S", entry.time)
         f:write(string.format("[%s] %s | %s | %s\n", ts, entry.kind, entry.player, entry.text))
         f:close()
     end
@@ -237,23 +251,66 @@ function Hardware.exportPayout(itemName, count)
     if not Hardware.me then return 0, "ME Interface не найден" end
     if not itemName or count <= 0 then return 0, "Нет предмета" end
     count = math.floor(count)
-    local filter = { name = itemName }
 
-    local ok, items = pcall(function() return Hardware.me.getItemsInNetwork(filter) end)
+    -- Ищем стак в сети (фильтр по name)
+    local ok, items = pcall(function()
+        return Hardware.me.getItemsInNetwork({ name = itemName })
+    end)
+    if not ok then
+        -- пробуем без фильтра и фильтруем сами
+        ok, items = pcall(function() return Hardware.me.getItemsInNetwork() end)
+        if ok and items then
+            local filtered = {}
+            for _, it in ipairs(items) do
+                if it.name == itemName then table.insert(filtered, it) end
+            end
+            items = filtered
+        end
+    end
     if not ok or not items or #items == 0 then
         return 0, "В ME сети нет: " .. tostring(itemName)
     end
+
     local available = 0
     for _, it in ipairs(items) do available = available + (it.size or 0) end
     if available < count then
         return 0, string.format("В ME только %d шт, нужно %d", available, count)
     end
 
-    local ok2, moved = pcall(Hardware.me.exportItem, filter, config.hardware.meSide, count)
-    if not ok2 then return 0, "Ошибка exportItem: " .. tostring(moved) end
-    moved = moved or 0
-    if moved < count then return moved, string.format("Выдано только %d из %d", moved, count) end
-    return moved, nil
+    -- AE2 OC: exportItem часто требует ПОЛНЫЙ стак из getItemsInNetwork
+    -- (fingerprint / name+damage), а не голый {name=...}
+    local stack = items[1]
+    local side = config.hardware.meSide
+
+    local attempts = {
+        function() return Hardware.me.exportItem(stack, side, count) end,
+        function()
+            local f = { name = stack.name }
+            if stack.damage ~= nil then f.damage = stack.damage end
+            return Hardware.me.exportItem(f, side, count)
+        end,
+        function()
+            return Hardware.me.exportItem({ name = itemName, damage = stack.damage or 0 }, side, count)
+        end,
+    }
+
+    local lastErr = nil
+    for _, fn in ipairs(attempts) do
+        local ok2, moved = pcall(fn)
+        if ok2 then
+            moved = tonumber(moved) or 0
+            if moved > 0 then
+                if moved < count then
+                    return moved, string.format("Выдано только %d из %d", moved, count)
+                end
+                return moved, nil
+            end
+            lastErr = "exportItem вернул 0"
+        else
+            lastErr = tostring(moved)
+        end
+    end
+    return 0, "Ошибка exportItem: " .. tostring(lastErr)
 end
 
 --------------------------------------------------
@@ -580,16 +637,15 @@ function UI.drawSidebar()
         text(sx + 2, 9, "Выход через: " .. UI.sessionLeft .. "с", config.colors.textDark, config.colors.panel)
 
         UI.addButton(sx + 1, 11, sw - 2, 3, "ПОПОЛНИТЬ СЧЁТ", config.colors.buttonGreen, 0xFFFFFF, function() UI.doDeposit() end)
-        UI.addButton(sx + 1, 15, sw - 2, 3, "ВЫВЕСТИ", config.colors.buttonYellow or 0xCCAA00, 0x000000, function() UI.doWithdraw() end)
 
         if config.admins[UI.playerName] then
-            UI.addButton(sx + 1, 19, sw - 2, 3, "АДМИН ПАНЕЛЬ", config.colors.buttonBlue, 0xFFFFFF, function()
+            UI.addButton(sx + 1, 15, sw - 2, 3, "АДМИН ПАНЕЛЬ", config.colors.buttonBlue, 0xFFFFFF, function()
                 UI.screen = "admin"; UI.adminTab = "bets"; UI.draw()
             end)
         end
     end
 
-    local y = UI.authorized and (config.admins[UI.playerName] and 23 or 19) or 10
+    local y = UI.authorized and (config.admins[UI.playerName] and 19 or 15) or 10
     if y > UI.h - 10 then y = UI.h - 10 end
 
     text(sx + 1, y, "СКУПКА ПРЕДМЕТОВ:", config.colors.textBlue, config.colors.panel); y = y + 1
@@ -817,7 +873,7 @@ function UI.drawAdminLogs(mw)
     for i = start, math.min(start + maxLines - 1, #Logs.entries) do
         local e = Logs.entries[i]
         if not e then break end
-        local ts = e.raw and e.raw:match("^%[(.-)%]") or (e.time > 0 and os.date("%m-%d %H:%M", e.time) or "")
+        local ts = e.raw and e.raw:match("^%[(.-)%]") or (e.time > 0 and moscowDate("%m-%d %H:%M", e.time) or "")
         local kindCol = config.colors.text
         if e.kind == "ВЫИГРЫШ" then kindCol = config.colors.textGreen
         elseif e.kind == "ПРОИГРЫШ" then kindCol = config.colors.textRed
@@ -972,33 +1028,6 @@ function UI.doDeposit()
     UI.draw()
 end
 
-function UI.doWithdraw()
-    if not UI.authorized then return end
-    local pi = Settings.data.payoutItem
-    if not pi or not pi.name then
-        UI.setMessage("Предмет выплаты не настроен (админ)", config.colors.textRed, 4); UI.draw(); return
-    end
-    UI.openInput("Сумма вывода в " .. config.currency.symbol, "10", function(val)
-        local amount = tonumber(val)
-        if not amount or amount <= 0 then UI.setMessage("Некорректная сумма", config.colors.textRed, 3); UI.draw(); return end
-        local p = Players.get(UI.playerName)
-        if (p.balance or 0) < amount then UI.setMessage("Недостаточно средств", config.colors.textRed, 3); UI.draw(); return end
-        local value = pi.value or 1
-        local count = math.floor(amount / value)
-        if count < 1 then UI.setMessage("Сумма слишком мала", config.colors.textRed, 3); UI.draw(); return end
-        local realAmount = count * value
-        local moved, err = Hardware.exportPayout(pi.name, count)
-        if moved < count then
-            UI.setMessage(err or "Ошибка выдачи из ME", config.colors.textRed, 5)
-            log("ОШИБКА", UI.playerName, "Вывод: " .. (err or "ME пусто")); UI.draw(); return
-        end
-        Players.addBalance(UI.playerName, -realAmount)
-        UI.setMessage("Выведено " .. realAmount .. " " .. config.currency.symbol, config.colors.textGreen, 5)
-        log("ВЫВОД", UI.playerName, string.format("%s(x%d) = %s %s", pi.label or pi.name, count, realAmount, config.currency.symbol))
-        UI.draw()
-    end, 10)
-end
-
 function UI.startGame()
     if not UI.authorized then return end
     local p = Players.get(UI.playerName)
@@ -1017,38 +1046,41 @@ function UI.resolveGame()
     local mult = Game.payoutMultiplier()
     local win = math.floor(Game.bet * mult + 0.5)
 
-    if win > 0 then
+    if Game.result == "DRAW" then
+        -- Возврат ставки на баланс
+        local refund = math.floor(Game.bet * (config.game.drawPayout or 1) + 0.5)
+        if refund > 0 then Players.addBalance(UI.playerName, refund) end
+        log("НИЧЬЯ", UI.playerName, string.format("Возврат %d %s", refund, config.currency.symbol))
+    elseif win > 0 then
+        -- Выигрыш: только в правый сундук из ME (не на баланс)
         local pi = Settings.data.payoutItem
         if pi and pi.name then
-            local value = pi.value or 1
-            local count = math.floor(win / value)
-            if count >= 1 then
-                local moved, err = Hardware.exportPayout(pi.name, count)
-                if moved > 0 then
-                    local paid = moved * value
-                    local rest = win - paid
-                    if rest > 0 then Players.addBalance(UI.playerName, rest) end
-                    log("ВЫИГРЫШ", UI.playerName, string.format("%s(x%d) в сундук | ставка %d", pi.label or pi.name, moved, Game.bet))
-                    if err then UI.setMessage("Частично: " .. err, config.colors.textGold, 4) end
-                else
-                    Players.addBalance(UI.playerName, win)
-                    log("ВЫИГРЫШ", UI.playerName, string.format("+%d %s на баланс (ME: %s)", win, config.currency.symbol, err or "?"))
-                    UI.setMessage("Выигрыш на баланс — " .. (err or "ME пусто"), config.colors.textGold, 5)
+            local value = tonumber(pi.value) or 1
+            if value <= 0 then value = 1 end
+            local count = math.max(1, math.floor(win / value + 1e-9))
+
+            local moved, err = Hardware.exportPayout(pi.name, count)
+            if moved and moved > 0 then
+                log("ВЫИГРЫШ", UI.playerName, string.format(
+                    "Выдал %s(x%d) в сундук | ставка %d | выигрыш %d %s",
+                    pi.label or pi.name, moved, Game.bet, win, config.currency.symbol
+                ))
+                if moved < count then
+                    UI.setMessage("Выдано " .. moved .. "/" .. count .. " из ME", config.colors.textGold, 5)
                 end
             else
+                -- Если ME пуст/ошибка — не оставляем игрока без выигрыша
                 Players.addBalance(UI.playerName, win)
-                log("ВЫИГРЫШ", UI.playerName, string.format("+%d %s на баланс | ставка %d", win, config.currency.symbol, Game.bet))
+                log("ОШИБКА", UI.playerName, "Выигрыш в сундук: " .. (err or "ME") .. " | +" .. win .. " на баланс")
+                UI.setMessage("ME не выдал (" .. (err or "?") .. ") → на баланс", config.colors.textRed, 6)
             end
         else
             Players.addBalance(UI.playerName, win)
-            log("ВЫИГРЫШ", UI.playerName, string.format("+%d %s на баланс | ставка %d", win, config.currency.symbol, Game.bet))
+            log("ВЫИГРЫШ", UI.playerName, string.format("+%d %s на баланс (нет предмета выплаты)", win, config.currency.symbol))
+            UI.setMessage("Настройте предмет выплаты в админке", config.colors.textGold, 5)
         end
-    else
-        if Game.result == "LOSE" then
-            log("ПРОИГРЫШ", UI.playerName, string.format("Ставка %d %s", Game.bet, config.currency.symbol))
-        elseif Game.result == "DRAW" then
-            log("НИЧЬЯ", UI.playerName, string.format("Возврат %d %s", win, config.currency.symbol))
-        end
+    elseif Game.result == "LOSE" then
+        log("ПРОИГРЫШ", UI.playerName, string.format("Ставка %d %s", Game.bet, config.currency.symbol))
     end
 
     local p = Players.get(UI.playerName)
