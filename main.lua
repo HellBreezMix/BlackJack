@@ -239,7 +239,11 @@ function Settings.load()
         winPayout = config.game.winPayout or 2.0,
         decks = config.game.decks or 6,
         hitSoft17 = true,
-        reshuffleAt = 40
+        reshuffleAt = 40,
+        shuffleEvery = false,
+        houseEdge = 0,
+        dealerProtect = 0,
+        lessBJ = false
     }
     local loaded = loadDB(config.paths.settings)
     if loaded then
@@ -252,6 +256,11 @@ function Settings.load()
         Settings.data.decks = Settings.data.decks or config.game.decks or 6
         if Settings.data.hitSoft17 == nil then Settings.data.hitSoft17 = true end
         Settings.data.reshuffleAt = Settings.data.reshuffleAt or 40
+        if Settings.data.shuffleEvery == nil then Settings.data.shuffleEvery = false end
+        Settings.data.houseEdge = tonumber(Settings.data.houseEdge) or 0
+        Settings.data.dealerProtect = tonumber(Settings.data.dealerProtect) or 0
+        if Settings.data.lessBJ == nil then Settings.data.lessBJ = false end
+        Settings.data.pushLoses = nil  -- убрано
     else
         Settings.data = def
     end
@@ -530,18 +539,18 @@ Cards.ranks = {
     {id="9", v=9}, {id="10", v=10}, {id="J", v=10}, {id="Q", v=10}, {id="K", v=10}
 }
 
--- Пипы для карты 13x10 (внутренняя область)
+-- Пипы для карты 15x11
 local faceLayout = {
-    ["A"]  = {{6,5}},
-    ["2"]  = {{6,3},{6,7}},
-    ["3"]  = {{6,3},{6,5},{6,7}},
-    ["4"]  = {{3,3},{9,3},{3,7},{9,7}},
-    ["5"]  = {{3,3},{9,3},{6,5},{3,7},{9,7}},
-    ["6"]  = {{3,3},{9,3},{3,5},{9,5},{3,7},{9,7}},
-    ["7"]  = {{3,3},{9,3},{6,4},{3,5},{9,5},{3,7},{9,7}},
-    ["8"]  = {{3,3},{9,3},{3,4},{9,4},{3,6},{9,6},{3,7},{9,7}},
-    ["9"]  = {{3,3},{9,3},{3,4},{9,4},{6,5},{3,6},{9,6},{3,7},{9,7}},
-    ["10"] = {{3,3},{9,3},{3,4},{9,4},{3,5},{9,5},{3,6},{9,6},{3,7},{9,7}},
+    ["A"]  = {{7,5}},
+    ["2"]  = {{7,3},{7,8}},
+    ["3"]  = {{7,3},{7,5},{7,8}},
+    ["4"]  = {{4,3},{10,3},{4,8},{10,8}},
+    ["5"]  = {{4,3},{10,3},{7,5},{4,8},{10,8}},
+    ["6"]  = {{4,3},{10,3},{4,5},{10,5},{4,8},{10,8}},
+    ["7"]  = {{4,3},{10,3},{7,4},{4,5},{10,5},{4,8},{10,8}},
+    ["8"]  = {{4,3},{10,3},{4,5},{10,5},{4,7},{10,7},{4,8},{10,8}},
+    ["9"]  = {{4,3},{10,3},{4,5},{7,5},{10,5},{4,7},{10,7},{4,8},{10,8}},
+    ["10"] = {{4,3},{10,3},{4,4},{10,4},{4,5},{10,5},{4,7},{10,7},{4,8},{10,8}},
     ["J"] = "face", ["Q"] = "face", ["K"] = "face"
 }
 
@@ -554,6 +563,20 @@ function Cards.createDeck(count)
                 table.insert(deck, { rank = r.id, suit = s, value = r.v })
             end
         end
+    end
+    -- меньше BJ: убираем ~25% тузов и десяток (J/Q/K/10)
+    if Settings.data and Settings.data.lessBJ then
+        local filtered, hi = {}, 0
+        for _, c in ipairs(deck) do
+            local high = (c.rank == "A" or c.value == 10)
+            if high then
+                hi = hi + 1
+                if hi % 4 ~= 0 then table.insert(filtered, c) end
+            else
+                table.insert(filtered, c)
+            end
+        end
+        deck = filtered
     end
     for i = #deck, 2, -1 do
         local j = math.random(i)
@@ -591,16 +614,90 @@ function Game.reset()
 end
 
 function Game.dealInit()
-    local need = tonumber(Settings.data.reshuffleAt) or 40
-    if #Game.deck < need then Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6) end
+    if Settings.data.shuffleEvery then
+        Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6)
+    else
+        local need = tonumber(Settings.data.reshuffleAt) or 40
+        if #Game.deck < need then Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6) end
+    end
     Game.player.hand = {}
     Game.dealer.hand = {}
     Game.finished = false; Game.result = nil; Game.state = "dealing"
 end
 
 function Game.drawOne(to)
-    if #Game.deck < 1 then Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6) end
-    local card = table.remove(Game.deck)
+    if #Game.deck < 1 then
+        Game.deck = Cards.createDeck(Settings.data.decks or config.game.decks or 6)
+    end
+
+    local function takeAt(i)
+        return table.remove(Game.deck, i)
+    end
+
+    local function cardEffValue(c)
+        -- для оценки перебора туз считаем как 1
+        if c.rank == "A" then return 1 end
+        return c.value
+    end
+
+    local card = nil
+    local edge = tonumber(Settings.data.houseEdge) or 0
+    local protect = tonumber(Settings.data.dealerProtect) or 0
+
+    -- Защита дилера: на 12–16 с шансом protect% взять карту без перебора
+    if to == "dealer" and protect > 0 and #Game.dealer.hand > 0 then
+        local d = Cards.handValue(Game.dealer.hand)
+        if d >= 12 and d <= 16 and math.random(100) <= protect then
+            local needMax = 21 - d
+            for i = #Game.deck, 1, -1 do
+                if cardEffValue(Game.deck[i]) <= needMax then
+                    card = takeAt(i)
+                    break
+                end
+            end
+        end
+    end
+
+    -- Перевес дома: при доборе игрока с шансом edge% подсунуть «плохую» карту
+    if not card and to == "player" and edge > 0 and #Game.player.hand > 0 then
+        if math.random(100) <= edge then
+            local p = Cards.handValue(Game.player.hand)
+            if p >= 12 then
+                -- ищем карту, которая даст перебор
+                local needMin = 22 - p
+                for i = #Game.deck, 1, -1 do
+                    local c = Game.deck[i]
+                    if c.rank ~= "A" and c.value >= needMin then
+                        card = takeAt(i)
+                        break
+                    end
+                end
+            else
+                -- на низких руках — мелкая карта (сложнее собрать 20/21)
+                for i = #Game.deck, 1, -1 do
+                    local c = Game.deck[i]
+                    if c.value <= 6 and c.rank ~= "A" then
+                        card = takeAt(i)
+                        break
+                    end
+                end
+            end
+        end
+    end
+
+    -- Перевес дома при раздаче дилеру: слегка лучше карты
+    if not card and to == "dealer" and edge > 0 and math.random(100) <= math.floor(edge / 2) then
+        for i = #Game.deck, 1, -1 do
+            local c = Game.deck[i]
+            if c.value >= 8 or c.rank == "A" then
+                card = takeAt(i)
+                break
+            end
+        end
+    end
+
+    if not card then card = table.remove(Game.deck) end
+
     if to == "player" then
         table.insert(Game.player.hand, card)
     else
@@ -653,7 +750,9 @@ function Game.standResolve()
     if Cards.isBust(Game.dealer.hand) then Game.finish("WIN")
     elseif p > d then Game.finish("WIN")
     elseif p < d then Game.finish("LOSE")
-    else Game.finish("DRAW") end
+    else
+        Game.finish("DRAW")
+    end
 end
 
 function Game.stand()
@@ -791,14 +890,14 @@ local function drawScreen()
         end
     end
 
-    -- фон: из кэша (без перерисовки узора каждый клик) или solid
     if hasFelt and _feltBuf then
+        -- узор из кэша — без мерцания
         local dst = useBuf and _screenBuf or 0
         pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
         if useBuf then pcall(gpu.setActiveBuffer, _screenBuf) end
     else
-        -- буфера нет — рисуем узор напрямую (масти на столе всегда видны)
-        paintFeltToActive(UI.w, UI.h)
+        -- нет буфера GPU: только заливка (без сотен gpu.set = нет мигания)
+        fill(1, 1, UI.w, UI.h, FELT_BASE)
     end
 
     UI.drawHeader()
@@ -847,8 +946,8 @@ local function drawBox(x, y, w, h, borderColor, fillColor)
     gpu.set(x, y + h - 1, "└"); gpu.set(x + w - 1, y + h - 1, "┘")
 end
 
-local CARD_W, CARD_H = 13, 10
-local CARD_STEP = 14
+local CARD_W, CARD_H = 15, 11
+local CARD_STEP = 16
 
 local function drawCardFrame(x, y, cw, ch, fg, bg)
     gpu.setForeground(fg)
@@ -891,29 +990,29 @@ local function drawCard(x, y, card, hidden)
     local face = config.colors.cardFace
 
     if layout == "face" then
-        -- крупные ранг + масть
-        text(x + 1, y + 1, rank, col, face)
-        text(x + 1, y + 2, card.suit, col, face)
-        text(x + 6, y + 4, rank, col, face)
-        text(x + 6, y + 5, card.suit, col, face)
-        text(x + cw - 2, y + ch - 2, rank, col, face)
-        text(x + cw - 2, y + ch - 3, card.suit, col, face)
+        -- очень крупные ранг + масть
+        text(x + 2, y + 1, rank, col, face)
+        text(x + 2, y + 2, card.suit, col, face)
+        text(x + 7, y + 4, rank, col, face)
+        text(x + 7, y + 5, card.suit, col, face)
+        text(x + cw - 3, y + ch - 3, rank, col, face)
+        text(x + cw - 3, y + ch - 2, card.suit, col, face)
     else
         if rank == "10" then
             text(x + 1, y + 1, "10", col, face)
-            text(x + 1, y + 2, card.suit, col, face)
-            text(x + cw - 3, y + ch - 2, "10", col, face)
-            text(x + cw - 2, y + ch - 3, card.suit, col, face)
+            text(x + 2, y + 2, card.suit, col, face)
+            text(x + cw - 3, y + ch - 3, "10", col, face)
+            text(x + cw - 2, y + ch - 2, card.suit, col, face)
         else
-            text(x + 1, y + 1, rank, col, face)
-            text(x + 1, y + 2, card.suit, col, face)
-            text(x + cw - 2, y + ch - 2, rank, col, face)
-            text(x + cw - 2, y + ch - 3, card.suit, col, face)
+            text(x + 2, y + 1, rank, col, face)
+            text(x + 2, y + 2, card.suit, col, face)
+            text(x + cw - 3, y + ch - 3, rank, col, face)
+            text(x + cw - 3, y + ch - 2, card.suit, col, face)
         end
         if type(layout) == "table" then
             for _, pos in ipairs(layout) do
                 local px, py = pos[1], pos[2]
-                if px >= 3 and px <= cw - 4 and py >= 3 and py <= ch - 4 then
+                if px >= 3 and px <= cw - 4 and py >= 3 and py <= ch - 3 then
                     text(x + px, y + py, card.suit, col, face)
                 end
             end
@@ -1082,37 +1181,61 @@ function UI.drawRules(mw, startY)
 end
 
 function UI.drawWelcomeArt(mw)
-    -- карты только в безопасной зоне (не на сайдбар и не на нижнюю строку)
     local maxX = mw - CARD_W - 1
-    local maxY = UI.h - CARD_H - 3
+    local maxY = UI.h - CARD_H - 2
+    -- только края, центр свободен под панель правил
     local scatter = {
         {  2,  3, "A", "♠", false },
-        {  3, 14, "Q", "♥", false },
-        {  2, 25, "9", "♦", false },
-        { 16,  3, "7", "♥", true  },
-        { 30,  2, "K", "♦", false },
-        { 44,  3, "3", "♣", false },
-        { math.min(maxX, 58),  2, "J", "♠", true  },
-        { maxX,  5, "5", "♦", true  },
-        { maxX, 16, "8", "♠", false },
-        { maxX, 27, "6", "♣", false },
-        { 12, maxY, "K", "♠", false },
-        { 28, maxY, "2", "♣", true  },
-        { 44, maxY, "A", "♥", false },
-        { 18, 20, "10","♠", true  },
-        { math.min(maxX - 2, 50), 20, "4", "♥", true },
+        {  2, 15, "Q", "♥", false },
+        {  2, 27, "9", "♦", false },
+        { 18,  2, "7", "♥", true  },
+        { 34,  2, "K", "♦", false },
+        { maxX,  3, "3", "♣", false },
+        { maxX, 14, "8", "♠", false },
+        { maxX, 25, "6", "♣", false },
+        {  2, maxY, "K", "♠", false },
+        { 20, maxY, "2", "♣", true  },
+        { 38, maxY, "A", "♥", false },
+        { maxX - 2, maxY, "5", "♦", true },
     }
     for _, c in ipairs(scatter) do
         local x, y = c[1], c[2]
         if x < 1 then x = 1 end
         if y < 2 then y = 2 end
-        if x + CARD_W <= mw and y + CARD_H <= UI.h - 2 then
+        if x + CARD_W <= mw and y + CARD_H < UI.h then
             drawCard(x, y, { rank = c[3], suit = c[4] }, c[5])
         end
     end
-    centerText(10, "♠  BLACKJACK  ♥", config.colors.textGold, config.colors.background, mw)
-    UI.drawRules(mw, 13)
-    centerText(20, "Нажмите кнопку для авторизации", config.colors.text, config.colors.background, mw)
+
+    -- тёмная панель под текст, чтобы карты не просвечивали
+    local panelW = math.min(48, mw - 8)
+    local panelH = 12
+    local px = math.floor((mw - panelW) / 2) + 1
+    local py = 9
+    fill(px, py, panelW, panelH, 0x083528)
+    gpu.setForeground(0x1A7A4A)
+    gpu.setBackground(0x083528)
+    for i = 0, panelW - 1 do
+        gpu.set(px + i, py, "─"); gpu.set(px + i, py + panelH - 1, "─")
+    end
+    for i = 0, panelH - 1 do
+        gpu.set(px, py + i, "│"); gpu.set(px + panelW - 1, py + i, "│")
+    end
+    gpu.set(px, py, "┌"); gpu.set(px + panelW - 1, py, "┐")
+    gpu.set(px, py + panelH - 1, "└"); gpu.set(px + panelW - 1, py + panelH - 1, "┘")
+
+    centerText(py + 1, "♠  BLACKJACK  ♥", config.colors.textGold, 0x083528, mw)
+    -- правила на фоне панели
+    local winX = tonumber(Settings.data.winPayout) or 2.0
+    local bjX  = tonumber(Settings.data.bjPayout) or 2.5
+    local winStr = (winX == math.floor(winX)) and tostring(math.floor(winX)) or string.format("%.1f", winX)
+    local bjStr  = (bjX == math.floor(bjX)) and tostring(math.floor(bjX)) or string.format("%.1f", bjX)
+    centerText(py + 3, "ПРАВИЛА", config.colors.textBlue, 0x083528, mw)
+    centerText(py + 4, "Цель: больше дилера, не больше 21", config.colors.text, 0x083528, mw)
+    centerText(py + 5, "Победа: x" .. winStr .. "  |  Blackjack: x" .. bjStr, config.colors.textGold, 0x083528, mw)
+    centerText(py + 6, "Ничья: ставка возвращается", config.colors.text, 0x083528, mw)
+    centerText(py + 7, "Перебор (>21): проигрыш", config.colors.textDark, 0x083528, mw)
+    centerText(py + 9, "Нажмите кнопку для авторизации", config.colors.text, 0x083528, mw)
 end
 
 function UI.drawMainArea()
@@ -1396,66 +1519,99 @@ end
 
 
 function UI.drawAdminOdds(mw)
-    text(4, 7, "Выплаты и сложность:", config.colors.textBlue, config.colors.background)
+    text(4, 7, "Выплаты:", config.colors.textBlue, config.colors.background)
 
-    text(4, 9, "Blackjack множитель:", config.colors.textDark, config.colors.background)
-    drawBox(4, 10, 14, 3, config.colors.textGold, config.colors.panelLight)
+    text(4, 9, "Blackjack x:", config.colors.textDark, config.colors.background)
+    drawBox(4, 10, 10, 3, config.colors.textGold, config.colors.panelLight)
     text(6, 11, tostring(Settings.data.bjPayout or 2.5), config.colors.textGold, config.colors.panelLight)
-    UI.addButton(4, 10, 14, 3, "", 0x000000, 0x000000, function()
+    UI.addButton(4, 10, 10, 3, "", 0x000000, 0x000000, function()
         UI.openInput("Blackjack x", tostring(Settings.data.bjPayout or 2.5), function(val)
             local n = tonumber(val)
             if n and n >= 1 and n <= 10 then Settings.data.bjPayout = n; Settings.save() end
             UI.draw()
         end, 6)
     end)
-    text(20, 11, "x  (2.5 = 3:2,  1.2 = 6:5)", config.colors.textDark, config.colors.background)
 
-    text(4, 14, "Обычная победа:", config.colors.textDark, config.colors.background)
-    drawBox(4, 15, 14, 3, config.colors.textGold, config.colors.panelLight)
-    text(6, 16, tostring(Settings.data.winPayout or 2.0), config.colors.textGold, config.colors.panelLight)
-    UI.addButton(4, 15, 14, 3, "", 0x000000, 0x000000, function()
+    text(16, 9, "Победа x:", config.colors.textDark, config.colors.background)
+    drawBox(16, 10, 10, 3, config.colors.textGold, config.colors.panelLight)
+    text(18, 11, tostring(Settings.data.winPayout or 2.0), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(16, 10, 10, 3, "", 0x000000, 0x000000, function()
         UI.openInput("Победа x", tostring(Settings.data.winPayout or 2.0), function(val)
             local n = tonumber(val)
             if n and n >= 1 and n <= 10 then Settings.data.winPayout = n; Settings.save() end
             UI.draw()
         end, 6)
     end)
-    text(20, 16, "x  (2.0 = ставка + выигрыш)", config.colors.textDark, config.colors.background)
 
-    text(4, 19, "Колод (1-8):", config.colors.textDark, config.colors.background)
-    drawBox(4, 20, 14, 3, config.colors.textGold, config.colors.panelLight)
-    text(6, 21, tostring(Settings.data.decks or 6), config.colors.textGold, config.colors.panelLight)
-    UI.addButton(4, 20, 14, 3, "", 0x000000, 0x000000, function()
+    text(28, 9, "Колод:", config.colors.textDark, config.colors.background)
+    drawBox(28, 10, 8, 3, config.colors.textGold, config.colors.panelLight)
+    text(30, 11, tostring(Settings.data.decks or 6), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(28, 10, 8, 3, "", 0x000000, 0x000000, function()
         UI.openInput("Колод", tostring(Settings.data.decks or 6), function(val)
             local n = tonumber(val)
             if n then n = math.floor(n); if n >= 1 and n <= 8 then Settings.data.decks = n; Settings.save() end end
             UI.draw()
         end, 2)
     end)
-    text(20, 21, "больше колод = реже BJ", config.colors.textDark, config.colors.background)
 
-    -- Soft 17 toggle
+    text(4, 14, "Честные правила:", config.colors.textBlue, config.colors.background)
+
     local soft = Settings.data.hitSoft17
-    local softLabel = soft and "[+] Дилер берёт soft 17" or "[ ] Дилер стоит на soft 17"
-    local softCol = soft and config.colors.textRed or config.colors.textGreen
-    UI.addButton(4, 24, 36, 3, softLabel, config.colors.button, softCol, function()
-        Settings.data.hitSoft17 = not Settings.data.hitSoft17
-        Settings.save()
-        UI.draw()
+    UI.addButton(4, 15, 36, 2, soft and "[+] Дилер берёт soft 17" or "[ ] Дилер стоит на soft 17",
+        config.colors.button, soft and config.colors.textRed or config.colors.textGreen, function()
+        Settings.data.hitSoft17 = not Settings.data.hitSoft17; Settings.save(); UI.draw()
     end)
-    text(4, 28, "soft 17 = туз+6. Бить soft 17 = сложнее для игрока", config.colors.textDark, config.colors.background)
 
-    text(4, 30, "Перемешать при остатке карт:", config.colors.textDark, config.colors.background)
-    drawBox(4, 31, 14, 3, config.colors.textGold, config.colors.panelLight)
-    text(6, 32, tostring(Settings.data.reshuffleAt or 40), config.colors.textGold, config.colors.panelLight)
-    UI.addButton(4, 31, 14, 3, "", 0x000000, 0x000000, function()
-        UI.openInput("Карт до shuffle", tostring(Settings.data.reshuffleAt or 40), function(val)
-            local n = tonumber(val)
-            if n then n = math.floor(n); if n >= 10 and n <= 200 then Settings.data.reshuffleAt = n; Settings.save() end end
-            UI.draw()
-        end, 4)
+    local every = Settings.data.shuffleEvery
+    UI.addButton(4, 18, 36, 2, every and "[+] Мешать колоду каждую раздачу" or "[ ] Мешать по остатку карт",
+        config.colors.button, every and config.colors.textRed or config.colors.text, function()
+        Settings.data.shuffleEvery = not Settings.data.shuffleEvery; Settings.save(); UI.draw()
     end)
-    text(20, 32, "раньше shuffle = меньше счёта карт", config.colors.textDark, config.colors.background)
+
+    if not Settings.data.shuffleEvery then
+        text(4, 21, "Остаток карт → shuffle:", config.colors.textDark, config.colors.background)
+        drawBox(26, 20, 10, 3, config.colors.textGold, config.colors.panelLight)
+        text(28, 21, tostring(Settings.data.reshuffleAt or 40), config.colors.textGold, config.colors.panelLight)
+        UI.addButton(26, 20, 10, 3, "", 0x000000, 0x000000, function()
+            UI.openInput("Карт до shuffle", tostring(Settings.data.reshuffleAt or 40), function(val)
+                local n = tonumber(val)
+                if n then n = math.floor(n); if n >= 10 and n <= 200 then Settings.data.reshuffleAt = n; Settings.save() end end
+                UI.draw()
+            end, 4)
+        end)
+    end
+
+    text(4, 24, "Перевес казино (скрытый):", config.colors.textRed, config.colors.background)
+
+    text(4, 26, "Перевес дома % (0-15):", config.colors.textDark, config.colors.background)
+    drawBox(28, 25, 10, 3, config.colors.textGold, config.colors.panelLight)
+    text(30, 26, tostring(Settings.data.houseEdge or 0), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(28, 25, 10, 3, "", 0x000000, 0x000000, function()
+        UI.openInput("Перевес %", tostring(Settings.data.houseEdge or 0), function(val)
+            local n = tonumber(val)
+            if n then n = math.floor(n); if n >= 0 and n <= 15 then Settings.data.houseEdge = n; Settings.save() end end
+            UI.draw()
+        end, 2)
+    end)
+
+    text(4, 29, "Защита дилера % (0-20):", config.colors.textDark, config.colors.background)
+    drawBox(28, 28, 10, 3, config.colors.textGold, config.colors.panelLight)
+    text(30, 29, tostring(Settings.data.dealerProtect or 0), config.colors.textGold, config.colors.panelLight)
+    UI.addButton(28, 28, 10, 3, "", 0x000000, 0x000000, function()
+        UI.openInput("Защита дилера %", tostring(Settings.data.dealerProtect or 0), function(val)
+            local n = tonumber(val)
+            if n then n = math.floor(n); if n >= 0 and n <= 20 then Settings.data.dealerProtect = n; Settings.save() end end
+            UI.draw()
+        end, 2)
+    end)
+
+    local less = Settings.data.lessBJ
+    UI.addButton(4, 32, 36, 2, less and "[+] Меньше Blackjack в колоде" or "[ ] Обычное число BJ",
+        config.colors.button, less and config.colors.textRed or config.colors.text, function()
+        Settings.data.lessBJ = not Settings.data.lessBJ; Settings.save(); UI.draw()
+    end)
+
+    text(4, 35, "5-8% перевес — мягко, 12%+ — жёстко", config.colors.textDark, config.colors.background)
 end
 
 function UI.drawAdminAddItem(mw)
