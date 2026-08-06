@@ -530,18 +530,18 @@ Cards.ranks = {
     {id="9", v=9}, {id="10", v=10}, {id="J", v=10}, {id="Q", v=10}, {id="K", v=10}
 }
 
--- Пипы только в центре (x:2..6, y:2..4), ранги в углах отдельно
+-- Пипы для карты 13x10 (внутренняя область)
 local faceLayout = {
-    ["A"]  = {{4,3}},
-    ["2"]  = {{4,2},{4,4}},
-    ["3"]  = {{4,2},{4,3},{4,4}},
-    ["4"]  = {{2,2},{6,2},{2,4},{6,4}},
-    ["5"]  = {{2,2},{6,2},{4,3},{2,4},{6,4}},
-    ["6"]  = {{2,2},{6,2},{2,3},{6,3},{2,4},{6,4}},
-    ["7"]  = {{2,2},{6,2},{4,2},{2,3},{6,3},{2,4},{6,4}},
-    ["8"]  = {{2,2},{6,2},{2,3},{6,3},{2,4},{6,4},{4,2},{4,4}},
-    ["9"]  = {{2,2},{6,2},{2,3},{4,3},{6,3},{2,4},{6,4},{4,2},{4,4}},
-    ["10"] = {{2,2},{6,2},{2,3},{6,3},{2,4},{6,4},{3,2},{5,2},{3,4},{5,4}},
+    ["A"]  = {{6,5}},
+    ["2"]  = {{6,3},{6,7}},
+    ["3"]  = {{6,3},{6,5},{6,7}},
+    ["4"]  = {{3,3},{9,3},{3,7},{9,7}},
+    ["5"]  = {{3,3},{9,3},{6,5},{3,7},{9,7}},
+    ["6"]  = {{3,3},{9,3},{3,5},{9,5},{3,7},{9,7}},
+    ["7"]  = {{3,3},{9,3},{6,4},{3,5},{9,5},{3,7},{9,7}},
+    ["8"]  = {{3,3},{9,3},{3,4},{9,4},{3,6},{9,6},{3,7},{9,7}},
+    ["9"]  = {{3,3},{9,3},{3,4},{9,4},{6,5},{3,6},{9,6},{3,7},{9,7}},
+    ["10"] = {{3,3},{9,3},{3,4},{9,4},{3,5},{9,5},{3,6},{9,6},{3,7},{9,7}},
     ["J"] = "face", ["Q"] = "face", ["K"] = "face"
 }
 
@@ -732,42 +732,54 @@ end
 local FELT_BASE = 0x0D6B3F
 local FELT_PAT  = 0x1A9A5C
 local _screenBuf = nil
+local _feltBuf = nil
+local _feltReady = false
 
-local function drawFelt(x, y, w, h)
-    fill(x, y, w, h, FELT_BASE)
+local function paintFeltToActive(w, h)
+    fill(1, 1, w, h, FELT_BASE)
     gpu.setBackground(FELT_BASE)
     gpu.setForeground(FELT_PAT)
     local suits = { "♠", "♥", "♦", "♣" }
     local si = 1
-    for row = y, y + h - 1, 3 do
-        local shift = (math.floor((row - y) / 3) % 2) * 2
-        for col = x + shift, x + w - 1, 5 do
+    for row = 1, h, 3 do
+        local shift = (math.floor((row - 1) / 3) % 2) * 2
+        for col = 1 + shift, w, 5 do
             gpu.set(col, row, suits[si])
             si = si % 4 + 1
         end
     end
 end
 
-local function drawFeltPattern(x, y, w, h)
-    -- лёгкий узор только для экрана ожидания (рисуется 1 раз вместе с контентом)
+local function drawFelt(x, y, w, h)
+    -- быстрый solid (узор только из кэша)
     fill(x, y, w, h, FELT_BASE)
-    gpu.setBackground(FELT_BASE)
-    gpu.setForeground(FELT_PAT)
-    local suits = { "♠", "♥", "♦", "♣" }
-    local si = 1
-    for row = y, y + h - 1, 4 do
-        local shift = (math.floor((row - y) / 4) % 2) * 2
-        for col = x + shift, x + w - 1, 6 do
-            gpu.set(col, row, suits[si])
-            si = si % 4 + 1
-        end
+end
+
+local function ensureFeltCache()
+    if _feltReady and _feltBuf then return true end
+    if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
+        return false
     end
+    if not _feltBuf then
+        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+        if not ok or not id then return false end
+        _feltBuf = id
+    end
+    if pcall(gpu.setActiveBuffer, _feltBuf) then
+        paintFeltToActive(UI.w, UI.h)
+        pcall(gpu.setActiveBuffer, 0)
+        _feltReady = true
+        return true
+    end
+    return false
 end
 
 local function drawScreen()
     UI.clearButtons()
 
+    local hasFelt = ensureFeltCache()
     local useBuf = false
+
     if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
         if not _screenBuf then
             local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
@@ -778,11 +790,18 @@ local function drawScreen()
         end
     end
 
-    drawFelt(1, 1, UI.w, UI.h)
+    -- фон: из кэша (без перерисовки узора каждый клик) или solid
+    if hasFelt and _feltBuf then
+        local dst = useBuf and _screenBuf or 0
+        pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
+        if useBuf then pcall(gpu.setActiveBuffer, _screenBuf) end
+    else
+        fill(1, 1, UI.w, UI.h, FELT_BASE)
+    end
+
     UI.drawHeader()
     UI.drawSidebar()
 
-    -- модалка поверх: не рисуем кнопки главного экрана (иначе ИГРАТЬ просвечивает)
     if UI.alert then
         UI.drawAlert()
     elseif UI.input.active then
@@ -795,7 +814,7 @@ local function drawScreen()
 
     if useBuf and _screenBuf then
         pcall(gpu.setActiveBuffer, 0)
-        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf)
+        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
     end
 end
 
@@ -826,8 +845,11 @@ local function drawBox(x, y, w, h, borderColor, fillColor)
     gpu.set(x, y + h - 1, "└"); gpu.set(x + w - 1, y + h - 1, "┘")
 end
 
+local CARD_W, CARD_H = 13, 10
+local CARD_STEP = 14
+
 local function drawCard(x, y, card, hidden)
-    local cw, ch = 9, 7
+    local cw, ch = CARD_W, CARD_H
     if hidden then
         fill(x, y, cw, ch, config.colors.cardBack)
         gpu.setForeground(0x4A2020)
@@ -837,11 +859,19 @@ local function drawCard(x, y, card, hidden)
                 if (dx + dy) % 2 == 0 then gpu.set(x + dx, y + dy, "░") end
             end
         end
+        -- рамка рубашки
+        gpu.setForeground(0x2A1010)
+        for i = 0, cw - 1 do
+            gpu.set(x + i, y, "─"); gpu.set(x + i, y + ch - 1, "─")
+        end
+        for i = 0, ch - 1 do
+            gpu.set(x, y + i, "│"); gpu.set(x + cw - 1, y + i, "│")
+        end
         return
     end
 
     fill(x, y, cw, ch, config.colors.cardFace)
-    gpu.setForeground(0x444444)
+    gpu.setForeground(0x333333)
     gpu.setBackground(config.colors.cardFace)
     for i = 0, cw - 1 do
         gpu.set(x + i, y, "─")
@@ -861,25 +891,22 @@ local function drawCard(x, y, card, hidden)
     local layout = faceLayout[rank]
 
     if layout == "face" then
-        -- J/Q/K: крупный ранг + масть по центру
         text(x + 1, y + 1, rank, col, config.colors.cardFace)
-        text(x + 4, y + 3, card.suit, col, config.colors.cardFace)
+        text(x + 6, y + 4, card.suit, col, config.colors.cardFace)
+        text(x + 6, y + 5, rank, col, config.colors.cardFace)
         text(x + cw - 2, y + ch - 2, rank, col, config.colors.cardFace)
     else
-        -- Ранг в углах
         if rank == "10" then
-            -- "10" занимает 2 символа — рисуем аккуратно
             text(x + 1, y + 1, "10", col, config.colors.cardFace)
             text(x + cw - 3, y + ch - 2, "10", col, config.colors.cardFace)
         else
             text(x + 1, y + 1, rank, col, config.colors.cardFace)
             text(x + cw - 2, y + ch - 2, rank, col, config.colors.cardFace)
         end
-        -- Пипы строго внутри, не на рамке и не на углах с рангом
         if type(layout) == "table" then
             for _, pos in ipairs(layout) do
                 local px, py = pos[1], pos[2]
-                if px >= 2 and px <= 6 and py >= 2 and py <= 4 then
+                if px >= 2 and px <= cw - 3 and py >= 2 and py <= ch - 3 then
                     text(x + px, y + py, card.suit, col, config.colors.cardFace)
                 end
             end
@@ -889,7 +916,7 @@ end
 
 local function drawHand(x, y, hand, hideFirst)
     for i, c in ipairs(hand) do
-        drawCard(x + (i - 1) * 10, y, c, hideFirst and i == 1)
+        drawCard(x + (i - 1) * CARD_STEP, y, c, hideFirst and i == 1)
     end
 end
 
@@ -1120,32 +1147,39 @@ function UI.drawMainArea()
 
     elseif UI.screen == "playing" or UI.screen == "result" then
         local hideDealer = (UI.screen == "playing" and not Game.finished and Game.state ~= "dealer_turn")
-        local cardW = 10
         local function handWidth(n)
             n = math.max(1, n)
-            return (n - 1) * cardW + 9
+            return (n - 1) * CARD_STEP + CARD_W
         end
         local function handX(n)
             return math.max(2, math.floor((mw - handWidth(n)) / 2) + 1)
         end
 
-        -- Дилер: крупный заголовок + счёт, карты по центру
-        local dCount = math.max(1, #Game.dealer.hand)
-        local dScore = hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand))
-        centerText(3, "◆  ДИЛЕР  ◆", config.colors.text, config.colors.background, mw)
-        centerText(4, dScore, config.colors.textGold, config.colors.background, mw)
-        drawHand(handX(#Game.dealer.hand > 0 and #Game.dealer.hand or 1), 6, Game.dealer.hand, hideDealer)
+        -- легенда ценностей (левый нижний угол поля)
+        text(3, UI.h - 2, "A=1/11  2-9=ном.  10/J/Q/K=10", config.colors.textDark, config.colors.background)
 
-        -- Игрок
-        local pCount = math.max(1, #Game.player.hand)
+        -- ДИЛЕР: подпись и счёт в одну строку (счёт справа)
+        local dScore = hideDealer and "?" or tostring(Cards.handValue(Game.dealer.hand))
+        local dLabel = "ДИЛЕР"
+        local dLine = dLabel .. "   " .. dScore
+        centerText(3, dLine, config.colors.textGold, config.colors.background, mw)
+        -- «крупнее»: дублируем счёт рядом ярче
+        local dScoreX = math.floor((mw - unicode.len(dLine)) / 2) + 1 + unicode.len(dLabel) + 3
+        text(dScoreX, 3, dScore, config.colors.textGold, config.colors.background)
+        drawHand(handX(#Game.dealer.hand > 0 and #Game.dealer.hand or 1), 5, Game.dealer.hand, hideDealer)
+
+        -- ВЫ
         local pScore = tostring(Cards.handValue(Game.player.hand))
-        centerText(15, "◆  ВЫ  ◆", config.colors.text, config.colors.background, mw)
-        centerText(16, pScore, config.colors.textGold, config.colors.background, mw)
+        local pLabel = "ВЫ"
+        local pLine = pLabel .. "   " .. pScore
+        centerText(16, pLine, config.colors.textGold, config.colors.background, mw)
+        local pScoreX = math.floor((mw - unicode.len(pLine)) / 2) + 1 + unicode.len(pLabel) + 3
+        text(pScoreX, 16, pScore, config.colors.textGold, config.colors.background)
         drawHand(handX(#Game.player.hand > 0 and #Game.player.hand or 1), 18, Game.player.hand, false)
 
-        centerText(26, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
+        centerText(29, "Ставка: " .. Game.bet .. " " .. config.currency.symbol, config.colors.text, config.colors.background, mw)
 
-        local btnY = 28
+        local btnY = 31
         local cx = math.floor(mw / 2)
         if UI.screen == "playing" and not Game.finished and Game.state == "playing" then
             UI.addButton(cx - 14, btnY, 12, 3, "ВЗЯТЬ", config.colors.buttonGreen, 0xFFFFFF, function()
@@ -1754,6 +1788,9 @@ local function boot()
     if targetH < 25 then targetH = maxH end
     pcall(gpu.setResolution, targetW, targetH)
     UI.w, UI.h = gpu.getResolution()
+    _feltReady = false
+    _feltBuf = nil
+    _screenBuf = nil
 
     -- сразу заливаем сукно
     pcall(gpu.setBackground, FELT_BASE)
