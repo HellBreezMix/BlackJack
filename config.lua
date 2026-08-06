@@ -10,7 +10,7 @@ local config = {}
 --------------------------------------------------
 config.project = {
     name    = "BlackJack",
-    version = "2.0.0",
+    version = "2.1.0",
     author  = "hellbreez"
 }
 
@@ -55,30 +55,21 @@ config.bet = {
 -- Игровые правила
 --------------------------------------------------
 config.game = {
-    decks          = 6,          -- количество колод
+    decks           = 6,
     blackjackPayout = 2.5,       -- 3:2
     winPayout       = 2.0,       -- 1:1
     drawPayout      = 1.0,       -- возврат ставки
-    dealerStandSoft17 = true     -- дилер стоит на soft 17
+    dealerStandSoft17 = true
 }
 
 --------------------------------------------------
--- Скупка предметов (name = полный id предмета)
--- Цены в ЭМ за 1 штуку
--- ВАЖНО: замените id на реальные с вашего сервера!
--- Узнать id можно через WAILA / HWYLA / /give
+-- Скупка предметов
+-- Можно указывать просто число или таблицу { price, label }
+-- Админка всё равно перезапишет при добавлении предметов
 --------------------------------------------------
 config.buyPrices = {
-    -- Примеры (подставьте правильные id)
-    ["minecraft:paper"]              = 1,     -- "Деньги"
-    -- ["yourmod:thorium_ore"]       = 0.2,  -- Ториевая руда
-    -- ["yourmod:dark_thorium_ore"]  = 4.6,  -- Темная ториевая руда
-
-    ["minecraft:diamond"]            = 50,
-    ["minecraft:emerald"]            = 30,
-    ["minecraft:gold_ingot"]         = 10,
-    ["minecraft:iron_ingot"]         = 2,
-    ["minecraft:coal"]               = 0.5,
+    -- ["customnpcs:npcMoney"] = { price = 1, label = "Деньги" },
+    -- ["minecraft:diamond"]   = { price = 50, label = "Алмаз" },
 }
 
 --------------------------------------------------
@@ -93,7 +84,7 @@ config.paths = {
 }
 
 --------------------------------------------------
--- Цвета (тёмная тема в стиле скриншотов)
+-- Цвета (тёмная тема)
 --------------------------------------------------
 config.colors = {
     background   = 0x0A0A0A,
@@ -129,7 +120,7 @@ config.colors = {
 -- Размеры UI
 --------------------------------------------------
 config.ui = {
-    sidebarWidth = 28,          -- ширина правой панели
+    sidebarWidth = 28,
     headerHeight = 1,
     cardW        = 9,
     cardH        = 7
