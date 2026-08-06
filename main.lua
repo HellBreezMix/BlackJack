@@ -865,7 +865,6 @@ local TABLE_RAIL_DARK = 0x3D2510
 local _screenBuf = nil
 local _feltBuf = nil
 local _feltReady = false
-local _welcomeBuf = nil
 local _welcomeReady = false
 
 local function paintFeltToActive(w, h)
@@ -927,11 +926,50 @@ end
 
 local _lastFeltPaint = 0
 
-local function blit(dst, srcBuf, x, y, w, h)
-    pcall(gpu.bitblt, dst, x, y, w, h, srcBuf, x, y)
-end
+local function drawScreen()
+    UI.clearButtons()
+    local mw = UI.w - (config.ui.sidebarWidth or 28)
 
-local function withBuffer(fn)
+    -- Всегда сбрасываем active buffer на экран (защита от сбоев кэша)
+    if gpu.setActiveBuffer then pcall(gpu.setActiveBuffer, 0) end
+
+    local welcomeMode = (UI.screen == "main" and not UI.authorized
+        and not UI.alert and not UI.input.active)
+
+    ------------------------------------------------------------------
+    -- Главный экран: карты рисуем ОДИН раз, дальше не трогаем
+    ------------------------------------------------------------------
+    if welcomeMode then
+        if not _welcomeReady then
+            if ensureFeltCache() and _feltBuf then
+                pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
+            else
+                paintFeltToActive(UI.w, UI.h)
+            end
+            drawTableRail(mw)
+            pcall(UI.drawWelcomeArt, mw)
+            fill(1, 1, UI.w, 1, config.colors.header)
+            centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
+            _welcomeReady = true
+        end
+        -- только сайдбар поверх «замороженных» карт
+        UI.drawSidebar()
+        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+        if UI.message and computer.uptime() < (UI.messageUntil or 0) then
+            local msg = tostring(UI.message)
+            local barW = math.min(mw - 4, math.max(30, unicode.len(msg) + 4))
+            local bx = math.floor((mw - barW) / 2) + 1
+            fill(bx, UI.h - 1, barW, 1, 0x083528)
+            centerText(UI.h - 1, msg, UI.messageColor or config.colors.text, 0x083528, mw)
+        end
+        return
+    end
+
+    ------------------------------------------------------------------
+    -- Остальные экраны
+    ------------------------------------------------------------------
+    _welcomeReady = false  -- при возврате на welcome перерисуем один раз
+
     local useBuf = false
     if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
         if not _screenBuf then
@@ -942,99 +980,17 @@ local function withBuffer(fn)
             useBuf = true
         end
     end
-    fn()
-    if useBuf and _screenBuf then
-        pcall(gpu.setActiveBuffer, 0)
-        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
-    end
-    return useBuf
-end
 
-local function ensureWelcomeCache(mw)
-    if _welcomeReady and _welcomeBuf then return true end
-    if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
-        return false
-    end
-    if not _welcomeBuf then
-        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-        if not ok or not id then return false end
-        _welcomeBuf = id
-    end
-    if not pcall(gpu.setActiveBuffer, _welcomeBuf) then return false end
-
-    -- рисуем статичную картинку главного экрана в буфер
-    if ensureFeltCache() and _feltBuf then
-        blit(_welcomeBuf, _feltBuf, 1, 1, UI.w, UI.h)
-    else
-        paintFeltToActive(UI.w, UI.h)
-    end
-    drawTableRail(mw)
-    UI.drawWelcomeArt(mw)
-    -- header line
-    fill(1, 1, UI.w, 1, config.colors.header)
-    centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
-
-    pcall(gpu.setActiveBuffer, 0)
-    _welcomeReady = true
-    return true
-end
-
-local function drawScreen()
-    UI.clearButtons()
-    local mw = UI.w - (config.ui.sidebarWidth or 28)
-
-    -- === Главный экран до авторизации: статичный кэш карт ===
-    local welcomeMode = (UI.screen == "main" and not UI.authorized
-        and not UI.alert and not UI.input.active)
-
-    if welcomeMode then
-        local hasCache = ensureWelcomeCache(mw)
-        if hasCache and _welcomeBuf then
-            -- мгновенно копируем «фото» стола — карты не перерисовываются
-            pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _welcomeBuf, 1, 1)
-        else
-            -- нет GPU-буфера: рисуем стол ОДИН раз, потом не трогаем
-            if not _welcomeReady then
-                if ensureFeltCache() and _feltBuf then
-                    pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
-                else
-                    paintFeltToActive(UI.w, UI.h)
-                end
-                drawTableRail(mw)
-                UI.drawWelcomeArt(mw)
-                fill(1, 1, UI.w, 1, config.colors.header)
-                centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
-                _welcomeReady = true
-            end
-        end
-        -- только сайдбар (кнопка авторизации и т.д.)
-        UI.drawSidebar()
-        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
-        if UI.message and computer.uptime() < UI.messageUntil then
-            local barW = math.min(mw - 4, math.max(30, unicode.len(UI.message) + 4))
-            local bx = math.floor((mw - barW) / 2) + 1
-            fill(bx, UI.h - 1, barW, 1, 0x083528)
-            centerText(UI.h - 1, UI.message, UI.messageColor, 0x083528, mw)
-        end
-        return
-    end
-
-    -- сброс кэша welcome при уходе с экрана
-    -- (сам буфер оставляем — быстрый возврат)
-
-    withBuffer(function()
+    local okDraw, errDraw = pcall(function()
         if ensureFeltCache() and _feltBuf then
-            local dst = _screenBuf or 0
-            -- если рисуем в screenBuf, active уже screenBuf
-            pcall(gpu.bitblt, dst ~= 0 and dst or 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
+            local dst = useBuf and _screenBuf or 0
+            pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
         else
             fill(1, 1, UI.w, UI.h, FELT_BASE)
         end
-
         drawTableRail(mw)
         UI.drawHeader()
         UI.drawSidebar()
-
         if UI.alert then
             UI.drawAlert()
         elseif UI.input.active then
@@ -1042,9 +998,26 @@ local function drawScreen()
         else
             UI.drawMainArea()
         end
-
         for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+        if UI.message and computer.uptime() < (UI.messageUntil or 0) then
+            local msg = tostring(UI.message)
+            local barW = math.min(mw - 4, math.max(30, unicode.len(msg) + 4))
+            local bx = math.floor((mw - barW) / 2) + 1
+            fill(bx, UI.h - 1, barW, 1, 0x083528)
+            centerText(UI.h - 1, msg, UI.messageColor or config.colors.text, 0x083528, mw)
+        end
     end)
+
+    if useBuf and _screenBuf then
+        pcall(gpu.setActiveBuffer, 0)
+        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
+    else
+        pcall(gpu.setActiveBuffer, 0)
+    end
+
+    if not okDraw then
+        error(errDraw)
+    end
 end
 
 
@@ -1896,12 +1869,28 @@ end
 function UI.login(name)
     if not name or name == "" then return end
     UI.pendingAuth = false
-    UI.playerName = name; UI.authorized = true; UI.sessionLeft = 120
-    UI.betAmount = math.max(Settings.data.minBet, math.min(Settings.data.maxBet, config.bet.default))
-    UI.screen = "main"; Players.get(name)
-    UI.setMessage("Добро пожаловать, " .. name, config.colors.textGreen, 3)
-    UI.startSessionTimer(); UI.draw()
-    log("ВХОД", name, "Авторизация")
+    UI.playerName = name
+    UI.authorized = true
+    UI.sessionLeft = 120
+    UI.screen = "main"
+    _welcomeReady = false
+    if gpu.setActiveBuffer then pcall(gpu.setActiveBuffer, 0) end
+
+    local minB = tonumber(Settings.data.minBet) or config.bet.min or 1
+    local maxB = tonumber(Settings.data.maxBet) or config.bet.max or 1000
+    local defB = tonumber(config.bet.default) or minB
+    UI.betAmount = math.max(minB, math.min(maxB, defB))
+
+    pcall(Players.get, name)
+    UI.setMessage("Добро пожаловать, " .. tostring(name), config.colors.textGreen, 3)
+    pcall(UI.startSessionTimer)
+
+    local ok, err = pcall(UI.draw)
+    if not ok then
+        print("Ошибка UI после входа: " .. tostring(err))
+        pcall(log, "ОШИБКА", name, "login draw: " .. tostring(err))
+    end
+    pcall(log, "ВХОД", name, "Авторизация")
 end
 
 function UI.logout()
@@ -2247,7 +2236,6 @@ local function boot()
     _feltReady = false
     _feltBuf = nil
     _screenBuf = nil
-    _welcomeBuf = nil
     _welcomeReady = false
 
     pcall(gpu.setBackground, FELT_BASE or 0x0D6B3F)
