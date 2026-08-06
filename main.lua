@@ -857,6 +857,32 @@ local function fill(x, y, w, h, color)
     gpu.fill(x, y, w, h, " ")
 end
 
+local function text(x, y, str, fg, bg)
+    if bg then gpu.setBackground(bg) end
+    if fg then gpu.setForeground(fg) end
+    gpu.set(x, y, tostring(str))
+end
+
+local function centerText(y, str, fg, bg, width)
+    width = width or UI.w
+    local x = math.floor((width - unicode.len(tostring(str))) / 2) + 1
+    text(x, y, str, fg, bg)
+end
+
+local function drawBox(x, y, w, h, borderColor, fillColor)
+    fill(x, y, w, h, fillColor or config.colors.panel)
+    gpu.setForeground(borderColor or config.colors.textBlue)
+    gpu.setBackground(fillColor or config.colors.panel)
+    for i = 0, w - 1 do
+        gpu.set(x + i, y, "─"); gpu.set(x + i, y + h - 1, "─")
+    end
+    for i = 0, h - 1 do
+        gpu.set(x, y + i, "│"); gpu.set(x + w - 1, y + i, "│")
+    end
+    gpu.set(x, y, "┌"); gpu.set(x + w - 1, y, "┐")
+    gpu.set(x, y + h - 1, "└"); gpu.set(x + w - 1, y + h - 1, "┘")
+end
+
 -- Фон сукна стола
 local FELT_BASE = 0x0D6B3F
 local FELT_PAT  = 0x1A9A5C
@@ -1021,31 +1047,6 @@ local function drawScreen()
 end
 
 
-local function text(x, y, str, fg, bg)
-    if bg then gpu.setBackground(bg) end
-    if fg then gpu.setForeground(fg) end
-    gpu.set(x, y, tostring(str))
-end
-
-local function centerText(y, str, fg, bg, width)
-    width = width or UI.w
-    local x = math.floor((width - unicode.len(tostring(str))) / 2) + 1
-    text(x, y, str, fg, bg)
-end
-
-local function drawBox(x, y, w, h, borderColor, fillColor)
-    fill(x, y, w, h, fillColor or config.colors.panel)
-    gpu.setForeground(borderColor or config.colors.textBlue)
-    gpu.setBackground(fillColor or config.colors.panel)
-    for i = 0, w - 1 do
-        gpu.set(x + i, y, "─"); gpu.set(x + i, y + h - 1, "─")
-    end
-    for i = 0, h - 1 do
-        gpu.set(x, y + i, "│"); gpu.set(x + w - 1, y + i, "│")
-    end
-    gpu.set(x, y, "┌"); gpu.set(x + w - 1, y, "┐")
-    gpu.set(x, y + h - 1, "└"); gpu.set(x + w - 1, y + h - 1, "┘")
-end
 
 local CARD_W, CARD_H = 15, 11
 local CARD_STEP = 16
