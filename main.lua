@@ -881,16 +881,16 @@ function drawBox(x, y, w, h, borderColor, fillColor)
     gpu.set(x, y + h - 1, "└"); gpu.set(x + w - 1, y + h - 1, "┘")
 end
 
--- Фон сукна стола (статичная «картинка» в GPU-буфере)
+-- Фон стола: статичная картинка (сукно + деревянная окантовка)
 local FELT_BASE = 0x0D6B3F
 local FELT_PAT  = 0x1A9A5C
 local TABLE_RAIL = 0x5C3A1E
 local TABLE_RAIL_DARK = 0x3D2510
 local _screenBuf = nil
-local _feltBuf = nil
-local _feltReady = false
+local _tableBuf = nil   -- снимок: сукно + окантовка
+local _tableReady = false
+local _tableMw = 0
 local _welcomeReady = false
-local _inFrame = false
 
 function paintFeltToActive(w, h)
     fill(1, 1, w, h, FELT_BASE)
@@ -907,65 +907,7 @@ function paintFeltToActive(w, h)
     end
 end
 
--- Один раз: нарисовать сукно в буфер = «фото» фона
-function ensureFeltCache()
-    if _feltReady and _feltBuf then return true end
-    if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
-        return false
-    end
-    if not _feltBuf then
-        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-        if not ok or not id then return false end
-        _feltBuf = id
-    end
-    if not pcall(gpu.setActiveBuffer, _feltBuf) then return false end
-    paintFeltToActive(UI.w, UI.h)
-    pcall(gpu.setActiveBuffer, 0)
-    _feltReady = true
-    return true
-end
-
--- Быстро положить картинку сукна на экран (только игровая зона)
-function blitFeltArea(mw)
-    mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
-    pcall(gpu.setActiveBuffer, 0)
-    if ensureFeltCache() and _feltBuf then
-        pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _feltBuf, 1, 1)
-        return true
-    end
-    -- fallback без буфера: один раз залить + узор (медленнее)
-    fill(1, 1, mw, UI.h, FELT_BASE)
-    gpu.setBackground(FELT_BASE)
-    gpu.setForeground(FELT_PAT)
-    local suits = { "♠", "♥", "♦", "♣" }
-    local si = 1
-    for row = 2, UI.h - 1, 2 do
-        local shift = (math.floor((row - 2) / 2) % 2) * 2
-        for col = 2 + shift, mw - 1, 4 do
-            gpu.set(col, row, suits[si])
-            si = si % 4 + 1
-        end
-    end
-    return false
-end
-
-function beginFrame()
-    -- для полной отрисовки UI (не анимации)
-    _inFrame = false
-    pcall(gpu.setActiveBuffer, 0)
-    return false
-end
-
-function present()
-    _inFrame = false
-    pcall(gpu.setActiveBuffer, 0)
-end
-
-local _lastFeltPaint = 0
-
-
--- окантовка игрового стола (слева от сайдбара)
-function drawTableRail(mw)
+function paintRailToActive(mw)
     if mw < 10 then return end
     fill(1, 2, mw, 1, TABLE_RAIL)
     fill(1, UI.h, mw, 1, TABLE_RAIL)
@@ -977,35 +919,121 @@ function drawTableRail(mw)
     fill(mw - 1, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
 end
 
+-- Один раз: сукно + дерево → картинка в буфере
+function ensureTableCache(mw)
+    mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
+    if _tableReady and _tableBuf and _tableMw == mw then return true end
+    if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
+        return false
+    end
+    if not _tableBuf then
+        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+        if not ok or not id then return false end
+        _tableBuf = id
+    end
+    if not pcall(gpu.setActiveBuffer, _tableBuf) then return false end
+    paintFeltToActive(UI.w, UI.h)
+    paintRailToActive(mw)
+    pcall(gpu.setActiveBuffer, 0)
+    _tableReady = true
+    _tableMw = mw
+    return true
+end
+
+-- Быстро: положить картинку стола на экран (игровая зона)
+function blitTable(mw)
+    mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
+    pcall(gpu.setActiveBuffer, 0)
+    if ensureTableCache(mw) and _tableBuf then
+        pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _tableBuf, 1, 1)
+        return true
+    end
+    -- fallback
+    paintFeltToActive(mw, UI.h)
+    paintRailToActive(mw)
+    return false
+end
+
+-- Double-buffer для полного UI (кнопки без мигания)
+function ensureScreenBuf()
+    if _screenBuf then return true end
+    if not _tableBuf then ensureTableCache() end
+    if not (gpu.allocateBuffer and gpu.bitblt) then return false end
+    local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+    if ok and id then _screenBuf = id; return true end
+    return false
+end
+
+local _inFrame = false
+
+function beginFrame()
+    if ensureScreenBuf() and _screenBuf and pcall(gpu.setActiveBuffer, _screenBuf) then
+        _inFrame = true
+        return true
+    end
+    _inFrame = false
+    pcall(gpu.setActiveBuffer, 0)
+    return false
+end
+
+function present()
+    if _inFrame and _screenBuf then
+        pcall(gpu.setActiveBuffer, 0)
+        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
+    end
+    _inFrame = false
+    pcall(gpu.setActiveBuffer, 0)
+end
+
+-- совместимость со старыми именами
+function ensureFeltCache() return ensureTableCache() end
+function blitFeltArea(mw) return blitTable(mw) end
+function drawTableRail(mw)
+    -- окантовка уже в картинке _tableBuf; fallback если нет кэша
+    if not (_tableReady and _tableBuf and _tableMw == mw) then
+        paintRailToActive(mw)
+    end
+end
+
 function drawScreen()
     UI.clearButtons()
     local mw = UI.w - (config.ui.sidebarWidth or 28)
-    pcall(gpu.setActiveBuffer, 0)
 
     local welcomeMode = (UI.screen == "main" and not UI.authorized
         and not UI.alert and not UI.input.active)
 
     if welcomeMode then
         if not _welcomeReady then
-            blitFeltArea(UI.w)
-            drawTableRail(mw)
+            beginFrame()
+            blitTable(UI.w)
+            -- rail уже в картинке для mw; для full width дорисуем
+            paintRailToActive(mw)
             pcall(UI.drawWelcomeArt, mw)
             fill(1, 1, UI.w, 1, config.colors.header)
             centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
+            UI.drawSidebar()
+            for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+            present()
             _welcomeReady = true
+        else
+            pcall(gpu.setActiveBuffer, 0)
+            UI.drawSidebar()
+            for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
         end
-        UI.drawSidebar()
-        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
         return
     end
 
     _welcomeReady = false
+    beginFrame()
 
-    -- фон = картинка сукна
-    blitFeltArea(mw)
-    -- сайдбар
+    -- картинка стола (сукно+дерево)
+    if _inFrame and _tableBuf and ensureTableCache(mw) then
+        pcall(gpu.bitblt, _screenBuf, 1, 1, mw, UI.h, _tableBuf, 1, 1)
+    else
+        blitTable(mw)
+    end
+
     fill(mw + 1, 1, UI.w - mw, UI.h, config.colors.panel)
-    drawTableRail(mw)
     UI.drawHeader()
     UI.drawSidebar()
 
@@ -1026,6 +1054,8 @@ function drawScreen()
         fill(bx, UI.h - 1, barW, 1, 0x083528)
         centerText(UI.h - 1, msg, UI.messageColor or config.colors.text, 0x083528, mw)
     end
+
+    present()
 end
 
 
@@ -1988,10 +2018,10 @@ function UI.flyCard(who, card, faceDown, onDone)
     local steps = 6
     local step = 0
 
-    ensureFeltCache()
+    ensureTableCache(mw)
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
-        UI.draw()  -- один полный кадр: стол + сайдбар
+        UI.draw()
     end
 
     UI.anim = { card = card, hidden = true, x = shoeX, y = shoeY, who = who }
@@ -2004,11 +2034,14 @@ function UI.flyCard(who, card, faceDown, onDone)
         return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
     end
 
-    -- Только игровая зона: картинка сукна + карты. Сайдбар НЕ трогаем.
+    -- Картинка стола + карты. Без перерисовки окантовки и сайдбара.
     local function paintPlay(fx, fy)
         pcall(gpu.setActiveBuffer, 0)
-        blitFeltArea(mw)
-        drawTableRail(mw)
+        if _tableBuf then
+            pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _tableBuf, 1, 1)
+        else
+            blitTable(mw)
+        end
 
         if #Game.dealer.hand > 0 then
             local hide = (Game.state == "dealing" or Game.state == "playing")
@@ -2207,16 +2240,20 @@ local function boot()
     if not UI.w or UI.w < 1 then UI.w = 80 end
     if not UI.h or UI.h < 1 then UI.h = 25 end
 
-    _feltReady = false
-    _feltBuf = nil
+    _tableReady = false
+    _tableBuf = nil
+    _tableMw = 0
     _screenBuf = nil
     _welcomeReady = false
     _inFrame = false
 
     pcall(gpu.setBackground, FELT_BASE or 0x0D6B3F)
     pcall(gpu.fill, 1, 1, UI.w, UI.h, " ")
-    -- сразу создаём снимок сукна (приоритет над screenBuf)
-    pcall(ensureFeltCache)
+    -- сразу снимок стола (сукно + окантовка)
+    pcall(function()
+        local mw = UI.w - (config.ui.sidebarWidth or 28)
+        ensureTableCache(mw)
+    end)
 
         ensureDir(config.paths.data)
     Players.load()
