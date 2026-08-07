@@ -881,7 +881,7 @@ function drawBox(x, y, w, h, borderColor, fillColor)
     gpu.set(x, y + h - 1, "└"); gpu.set(x + w - 1, y + h - 1, "┘")
 end
 
--- Фон сукна стола
+-- Фон сукна стола (статичная «картинка» в GPU-буфере)
 local FELT_BASE = 0x0D6B3F
 local FELT_PAT  = 0x1A9A5C
 local TABLE_RAIL = 0x5C3A1E
@@ -890,6 +890,7 @@ local _screenBuf = nil
 local _feltBuf = nil
 local _feltReady = false
 local _welcomeReady = false
+local _inFrame = false
 
 function paintFeltToActive(w, h)
     fill(1, 1, w, h, FELT_BASE)
@@ -906,91 +907,58 @@ function paintFeltToActive(w, h)
     end
 end
 
--- узор в прямоугольнике (fallback без буфера)
-function paintFeltRegion(x, y, w, h)
-    fill(x, y, w, h, FELT_BASE)
-    gpu.setBackground(FELT_BASE)
-    gpu.setForeground(FELT_PAT)
-    local suits = { "♠", "♥", "♦", "♣" }
-    local si = 1
-    for row = y, y + h - 1, 2 do
-        local shift = (math.floor((row - y) / 2) % 2) * 2
-        for col = x + shift, x + w - 1, 4 do
-            if col >= x and col < x + w and row >= y and row < y + h then
-                gpu.set(col, row, suits[si])
-                si = si % 4 + 1
-            end
-        end
-    end
-end
-
+-- Один раз: нарисовать сукно в буфер = «фото» фона
 function ensureFeltCache()
     if _feltReady and _feltBuf then return true end
     if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
         return false
     end
-    -- сукно важнее double-buffer: выделяем первым
     if not _feltBuf then
         local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
         if not ok or not id then return false end
         _feltBuf = id
     end
-    if pcall(gpu.setActiveBuffer, _feltBuf) then
-        paintFeltToActive(UI.w, UI.h)
-        pcall(gpu.setActiveBuffer, 0)
-        _feltReady = true
-        return true
-    end
-    return false
+    if not pcall(gpu.setActiveBuffer, _feltBuf) then return false end
+    paintFeltToActive(UI.w, UI.h)
+    pcall(gpu.setActiveBuffer, 0)
+    _feltReady = true
+    return true
 end
 
-local _inFrame = false
-
+-- Быстро положить картинку сукна на экран (только игровая зона)
 function blitFeltArea(mw)
     mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
+    pcall(gpu.setActiveBuffer, 0)
     if ensureFeltCache() and _feltBuf then
-        local dst = (_inFrame and _screenBuf) or 0
-        pcall(gpu.bitblt, dst, 1, 1, mw, UI.h, _feltBuf, 1, 1)
+        pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _feltBuf, 1, 1)
         return true
     end
-    -- нет буфера — рисуем узор напрямую
-    paintFeltRegion(1, 1, mw, UI.h)
+    -- fallback без буфера: один раз залить + узор (медленнее)
+    fill(1, 1, mw, UI.h, FELT_BASE)
+    gpu.setBackground(FELT_BASE)
+    gpu.setForeground(FELT_PAT)
+    local suits = { "♠", "♥", "♦", "♣" }
+    local si = 1
+    for row = 2, UI.h - 1, 2 do
+        local shift = (math.floor((row - 2) / 2) % 2) * 2
+        for col = 2 + shift, mw - 1, 4 do
+            gpu.set(col, row, suits[si])
+            si = si % 4 + 1
+        end
+    end
     return false
 end
 
-function ensureScreenBuf()
-    -- только если сукно уже в буфере (не забираем единственный слот)
-    if not _feltBuf then ensureFeltCache() end
-    if _screenBuf then return true end
-    if not (gpu.allocateBuffer and gpu.bitblt) then return false end
-    local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-    if ok and id then
-        _screenBuf = id
-        return true
-    end
+function beginFrame()
+    -- для полной отрисовки UI (не анимации)
+    _inFrame = false
+    pcall(gpu.setActiveBuffer, 0)
     return false
 end
 
 function present()
-    if _inFrame and _screenBuf then
-        pcall(gpu.setActiveBuffer, 0)
-        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
-    end
     _inFrame = false
     pcall(gpu.setActiveBuffer, 0)
-end
-
-function beginFrame()
-    -- double-buffer только при наличии ВТОРОГО буфера
-    if _feltBuf and ensureScreenBuf() and _screenBuf then
-        if pcall(gpu.setActiveBuffer, _screenBuf) then
-            _inFrame = true
-            return true
-        end
-    end
-    _inFrame = false
-    pcall(gpu.setActiveBuffer, 0)
-    return false
 end
 
 local _lastFeltPaint = 0
@@ -1012,40 +980,31 @@ end
 function drawScreen()
     UI.clearButtons()
     local mw = UI.w - (config.ui.sidebarWidth or 28)
+    pcall(gpu.setActiveBuffer, 0)
 
     local welcomeMode = (UI.screen == "main" and not UI.authorized
         and not UI.alert and not UI.input.active)
 
     if welcomeMode then
         if not _welcomeReady then
-            beginFrame()
-            if not blitFeltArea(UI.w) then paintFeltToActive(UI.w, UI.h) end
+            blitFeltArea(UI.w)
             drawTableRail(mw)
             pcall(UI.drawWelcomeArt, mw)
             fill(1, 1, UI.w, 1, config.colors.header)
             centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
-            UI.drawSidebar()
-            for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
-            present()
             _welcomeReady = true
-        else
-            -- только сайдбар на реальном экране — карты не трогаем
-            if gpu.setActiveBuffer then pcall(gpu.setActiveBuffer, 0) end
-            UI.drawSidebar()
-            for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
         end
+        UI.drawSidebar()
+        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
         return
     end
 
     _welcomeReady = false
-    beginFrame()
 
-    -- сукно только на игровой зоне; место сайдбара зальём в drawSidebar
+    -- фон = картинка сукна
     blitFeltArea(mw)
-    -- фон сайдбара
-    local sx = mw + 1
-    fill(sx, 1, UI.w - mw, UI.h, config.colors.panel)
-
+    -- сайдбар
+    fill(mw + 1, 1, UI.w - mw, UI.h, config.colors.panel)
     drawTableRail(mw)
     UI.drawHeader()
     UI.drawSidebar()
@@ -1067,8 +1026,6 @@ function drawScreen()
         fill(bx, UI.h - 1, barW, 1, 0x083528)
         centerText(UI.h - 1, msg, UI.messageColor or config.colors.text, 0x083528, mw)
     end
-
-    present()
 end
 
 
@@ -2028,13 +1985,13 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = (_screenBuf or ensureScreenBuf()) and 8 or 5
+    local steps = 6
     local step = 0
 
     ensureFeltCache()
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
-        UI.draw()
+        UI.draw()  -- один полный кадр: стол + сайдбар
     end
 
     UI.anim = { card = card, hidden = true, x = shoeX, y = shoeY, who = who }
@@ -2047,20 +2004,11 @@ function UI.flyCard(who, card, faceDown, onDone)
         return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
     end
 
-    local function paintFrame(fx, fy)
-        beginFrame()
-        -- только игровая зона — правый столбец не трогаем в буфере... 
-        -- но screenBuf содержит всё: сначала копируем сукно на mw, сайдбар рисуем
+    -- Только игровая зона: картинка сукна + карты. Сайдбар НЕ трогаем.
+    local function paintPlay(fx, fy)
+        pcall(gpu.setActiveBuffer, 0)
         blitFeltArea(mw)
-        local sx = mw + 1
-        fill(sx, 1, UI.w - mw, UI.h, config.colors.panel)
         drawTableRail(mw)
-        fill(1, 1, UI.w, 1, config.colors.header)
-        centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
-
-        -- сайдбар (визуал + кнопки)
-        UI.clearButtons()
-        UI.drawSidebar()
 
         if #Game.dealer.hand > 0 then
             local hide = (Game.state == "dealing" or Game.state == "playing")
@@ -2080,11 +2028,7 @@ function UI.flyCard(who, card, faceDown, onDone)
         drawShoe(mw)
         if fx then drawCard(fx, fy, card, true) end
         centerText(36, "Ставка: " .. tostring(Game.bet) .. " " .. config.currency.symbol,
-            config.colors.text, config.colors.background, mw)
-        centerText(38, "Раздача...", config.colors.textGold, config.colors.background, mw)
-
-        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
-        present()  -- один показ кадра — без мигания
+            config.colors.text, FELT_BASE, mw)
     end
 
     local function frame()
@@ -2093,18 +2037,17 @@ function UI.flyCard(who, card, faceDown, onDone)
         local e = t * t * (3 - 2 * t)
         local nx = math.floor(shoeX + (tx - shoeX) * e + 0.5)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
-        UI.anim.x, UI.anim.y = nx, ny
-        paintFrame(nx, ny)
+        paintPlay(nx, ny)
         if step < steps then
-            UI.schedule(0.05, frame)
+            UI.schedule(0.04, frame)
         else
             table.insert(hand, card)
             UI.anim = nil
-            paintFrame(nil, nil)
+            paintPlay(nil, nil)
             if onDone then onDone() end
         end
     end
-    UI.schedule(0.03, frame)
+    UI.schedule(0.02, frame)
 end
 
 -- Анимация раздачи: игрок, дилер, игрок, дилер (с полётом)
