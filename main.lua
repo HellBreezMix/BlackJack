@@ -2028,10 +2028,10 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 5
+    local steps = 4
     local step = 0
 
-    ensureTableCache(mw)
+    pcall(ensureTableCache, mw)
 
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
@@ -2048,16 +2048,21 @@ function UI.flyCard(who, card, faceDown, onDone)
         return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
     end
 
-    -- Каждый кадр: картинка стола (1 bitblt) + карты. Без следов, сайдбар не трогаем.
     local function paintPlay(fx, fy)
         pcall(gpu.setActiveBuffer, 0)
+
+        -- 1) ЖЁСТКАЯ очистка игровой зоны (гасит любые «призраки»)
+        gpu.setBackground(FELT_BASE)
+        gpu.fill(1, 1, mw, UI.h, " ")
+
+        -- 2) Картинка стола поверх (если буфер есть)
         if _tableBuf then
             pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _tableBuf, 1, 1)
         else
-            fill(1, 1, mw, UI.h, FELT_BASE)
             paintRailToActive(mw)
         end
 
+        -- 3) Карты
         if #Game.dealer.hand > 0 then
             local hide = (Game.state == "dealing" or Game.state == "playing")
                 and not Game.finished and Game.state ~= "dealer_turn"
@@ -2074,10 +2079,12 @@ function UI.flyCard(who, card, faceDown, onDone)
                 tostring(Cards.handValue(Game.player.hand)), config.colors.textGold)
         end
         drawShoe(mw)
+
         if fx then
             drawCard(fx, fy, card, true)
         end
-        centerText(36, "Ставка: " .. tostring(Game.bet) .. " " .. config.currency.symbol,
+
+        centerText(36, "Ставка: " .. tostring(Game.bet or 0) .. " " .. config.currency.symbol,
             config.colors.text, FELT_BASE, mw)
     end
 
@@ -2089,7 +2096,7 @@ function UI.flyCard(who, card, faceDown, onDone)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
         paintPlay(nx, ny)
         if step < steps then
-            UI.schedule(0.04, frame)
+            UI.schedule(0.05, frame)
         else
             table.insert(hand, card)
             UI.anim = nil
