@@ -941,8 +941,19 @@ local function ensureFeltCache()
     end
     if pcall(gpu.setActiveBuffer, _feltBuf) then
         paintFeltToActive(UI.w, UI.h)
+        -- окантовка тоже в статичный снимок (без сайдбара — сайдбар рисуем поверх)
         pcall(gpu.setActiveBuffer, 0)
         _feltReady = true
+        return true
+    end
+    return false
+end
+
+-- сукно как статичная картинка: мгновенное копирование, без перерисовки мастей
+local function blitFelt()
+    if ensureFeltCache() and _feltBuf then
+        pcall(gpu.setActiveBuffer, 0)
+        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
         return true
     end
     return false
@@ -953,30 +964,20 @@ local _lastFeltPaint = 0
 local function drawScreen()
     UI.clearButtons()
     local mw = UI.w - (config.ui.sidebarWidth or 28)
-
-    -- Всегда сбрасываем active buffer на экран (защита от сбоев кэша)
     if gpu.setActiveBuffer then pcall(gpu.setActiveBuffer, 0) end
 
     local welcomeMode = (UI.screen == "main" and not UI.authorized
         and not UI.alert and not UI.input.active)
 
-    ------------------------------------------------------------------
-    -- Главный экран: карты рисуем ОДИН раз, дальше не трогаем
-    ------------------------------------------------------------------
     if welcomeMode then
         if not _welcomeReady then
-            if ensureFeltCache() and _feltBuf then
-                pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
-            else
-                paintFeltToActive(UI.w, UI.h)
-            end
+            if not blitFelt() then paintFeltToActive(UI.w, UI.h) end
             drawTableRail(mw)
             pcall(UI.drawWelcomeArt, mw)
             fill(1, 1, UI.w, 1, config.colors.header)
             centerText(1, "CASINO BLACKJACK", config.colors.textBlue, config.colors.header)
             _welcomeReady = true
         end
-        -- только сайдбар поверх «замороженных» карт
         UI.drawSidebar()
         for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
         if UI.message and computer.uptime() < (UI.messageUntil or 0) then
@@ -989,59 +990,32 @@ local function drawScreen()
         return
     end
 
-    ------------------------------------------------------------------
-    -- Остальные экраны
-    ------------------------------------------------------------------
-    _welcomeReady = false  -- при возврате на welcome перерисуем один раз
+    _welcomeReady = false
 
-    local useBuf = false
-    if gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt then
-        if not _screenBuf then
-            local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-            if ok and id then _screenBuf = id end
-        end
-        if _screenBuf and pcall(gpu.setActiveBuffer, _screenBuf) then
-            useBuf = true
-        end
+    -- фон = статичный снимок сукна (без мерцания узора)
+    if not blitFelt() then
+        paintFeltToActive(UI.w, UI.h)
     end
+    drawTableRail(mw)
+    UI.drawHeader()
+    UI.drawSidebar()
 
-    local okDraw, errDraw = pcall(function()
-        if ensureFeltCache() and _feltBuf then
-            local dst = useBuf and _screenBuf or 0
-            pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
-        else
-            -- узор без буфера: рисуем каждый кадр (может чуть медленнее, но без «пустого» стола)
-            paintFeltToActive(UI.w, UI.h)
-        end
-        drawTableRail(mw)
-        UI.drawHeader()
-        UI.drawSidebar()
-        if UI.alert then
-            UI.drawAlert()
-        elseif UI.input.active then
-            UI.drawInputModal()
-        else
-            UI.drawMainArea()
-        end
-        for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
-        if UI.message and computer.uptime() < (UI.messageUntil or 0) then
-            local msg = tostring(UI.message)
-            local barW = math.min(mw - 4, math.max(30, unicode.len(msg) + 4))
-            local bx = math.floor((mw - barW) / 2) + 1
-            fill(bx, UI.h - 1, barW, 1, 0x083528)
-            centerText(UI.h - 1, msg, UI.messageColor or config.colors.text, 0x083528, mw)
-        end
-    end)
-
-    if useBuf and _screenBuf then
-        pcall(gpu.setActiveBuffer, 0)
-        pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
+    if UI.alert then
+        UI.drawAlert()
+    elseif UI.input.active then
+        UI.drawInputModal()
     else
-        pcall(gpu.setActiveBuffer, 0)
+        UI.drawMainArea()
     end
 
-    if not okDraw then
-        error(errDraw)
+    for _, b in ipairs(UI.buttons) do UI.drawButton(b) end
+
+    if UI.message and computer.uptime() < (UI.messageUntil or 0) then
+        local msg = tostring(UI.message)
+        local barW = math.min(mw - 4, math.max(30, unicode.len(msg) + 4))
+        local bx = math.floor((mw - barW) / 2) + 1
+        fill(bx, UI.h - 1, barW, 1, 0x083528)
+        centerText(UI.h - 1, msg, UI.messageColor or config.colors.text, 0x083528, mw)
     end
 end
 
@@ -1124,7 +1098,7 @@ end
 -- крупный блок счёта справа от карт
 local function drawScoreBadge(x, y, label, score, accent)
     accent = accent or config.colors.textGold
-    local sw, sh = 14, 6
+    local sw, sh = 12, 5
     fill(x, y, sw, sh, 0x083528)
     gpu.setForeground(0x1A7A4A)
     gpu.setBackground(0x083528)
@@ -1136,17 +1110,10 @@ local function drawScoreBadge(x, y, label, score, accent)
     end
     gpu.set(x, y, "┌"); gpu.set(x + sw - 1, y, "┐")
     gpu.set(x, y + sh - 1, "└"); gpu.set(x + sw - 1, y + sh - 1, "┘")
-    local lx = x + math.floor((sw - unicode.len(label)) / 2)
-    text(lx, y + 1, label, config.colors.text, 0x083528)
-    local s = tostring(score)
-    local spaced = s
-    if #s == 2 then
-        spaced = s:sub(1, 1) .. " " .. s:sub(2, 2)
-    elseif #s == 1 then
-        spaced = " " .. s .. " "
-    end
-    local sx = x + math.floor((sw - unicode.len(spaced)) / 2)
-    text(sx, y + 3, spaced, accent, 0x083528)
+    local lab = tostring(label)
+    local sc = tostring(score)
+    text(x + math.floor((sw - unicode.len(lab)) / 2), y + 1, lab, config.colors.text, 0x083528)
+    text(x + math.floor((sw - unicode.len(sc)) / 2), y + 3, sc, accent, 0x083528)
 end
 
 local function drawHand(x, y, hand, hideFirst)
@@ -2009,74 +1976,56 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 12
+    local steps = 10
     local step = 0
-    local prevX, prevY = nil, nil
 
-    -- кэш узора обязателен, чтобы след карты не оставлял «дыры»
     ensureFeltCache()
-
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
         UI.draw()
     end
 
     UI.anim = { card = card, hidden = true, x = shoeX, y = shoeY, who = who }
-    drawShoe(mw)
-    drawCard(shoeX, shoeY, card, true)
-    prevX, prevY = shoeX, shoeY
 
-    local function restoreFelt(x, y)
-        if not x then return end
-        if _feltBuf and gpu.bitblt then
-            pcall(gpu.setActiveBuffer, 0)
-            pcall(gpu.bitblt, 0, x, y, CARD_W, CARD_H, _feltBuf, x, y)
-        else
-            gpu.setBackground(FELT_BASE)
-            gpu.fill(x, y, CARD_W, CARD_H, " ")
-            -- точечный узор в области карты
-            if not _feltBuf then
-                gpu.setBackground(FELT_BASE)
-                gpu.setForeground(FELT_PAT)
-                local suits = { "♠", "♥", "♦", "♣" }
-                local si = 1 + ((x + y) % 4)
-                for row = y, y + CARD_H - 1, 2 do
-                    local shift = (math.floor((row - y) / 2) % 2) * 2
-                    for col = x + shift, x + CARD_W - 1, 4 do
-                        if col >= x and col < x + CARD_W then
-                            gpu.set(col, row, suits[((si - 1) % 4) + 1])
-                            si = si + 1
-                        end
-                    end
-                end
-            end
-        end
+    local function hw(n)
+        n = math.max(1, n)
+        return (n - 1) * CARD_STEP + CARD_W
+    end
+    local function hx(n)
+        return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
     end
 
-    local function redrawStaticHands()
-        local function hw(n)
-            n = math.max(1, n)
-            return (n - 1) * CARD_STEP + CARD_W
-        end
-        local function hx(n)
-            return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
-        end
-        -- дилер
+    local function paintFrame(fx, fy, faceDownFly)
+        -- 1) статичное сукно целиком
+        if not blitFelt() then paintFeltToActive(UI.w, UI.h) end
+        drawTableRail(mw)
+        -- 2) руки + счёт (один раз каждый)
         if #Game.dealer.hand > 0 then
-            local hide = (Game.state == "dealing" or Game.state == "playing") and not Game.finished and Game.state ~= "dealer_turn"
-            drawHand(hx(#Game.dealer.hand), 7, Game.dealer.hand, hide)
-            local sc = hide and "?" or tostring(Cards.handValue(Game.dealer.hand))
-            if #Game.dealer.hand < 2 then sc = tostring(Cards.handValue(Game.dealer.hand)) end
+            local hide = (Game.state == "dealing" or Game.state == "playing")
+                and not Game.finished and Game.state ~= "dealer_turn"
             local dN = #Game.dealer.hand
+            drawHand(hx(dN), 7, Game.dealer.hand, hide)
+            local sc = "?"
+            if not hide or dN < 2 then
+                sc = tostring(Cards.handValue(Game.dealer.hand))
+            end
+            if hide and dN >= 2 then sc = "?" end
             drawScoreBadge(hx(dN) + hw(dN) + 3, 8, "ДИЛЕР", sc, config.colors.textGold)
         end
-        -- игрок
         if #Game.player.hand > 0 then
-            drawHand(hx(#Game.player.hand), 24, Game.player.hand, false)
             local pN = #Game.player.hand
-            drawScoreBadge(hx(pN) + hw(pN) + 3, 25, "ВЫ", tostring(Cards.handValue(Game.player.hand)), config.colors.textGold)
+            drawHand(hx(pN), 24, Game.player.hand, false)
+            drawScoreBadge(hx(pN) + hw(pN) + 3, 25, "ВЫ",
+                tostring(Cards.handValue(Game.player.hand)), config.colors.textGold)
         end
         drawShoe(mw)
+        -- 3) летящая карта
+        if fx then
+            drawCard(fx, fy, card, faceDownFly ~= false)
+        end
+        -- 4) лёгкий UI низ
+        centerText(36, "Ставка: " .. tostring(Game.bet) .. " " .. config.currency.symbol,
+            config.colors.text, config.colors.background, mw)
     end
 
     local function frame()
@@ -2085,20 +2034,16 @@ function UI.flyCard(who, card, faceDown, onDone)
         local e = t * t * (3 - 2 * t)
         local nx = math.floor(shoeX + (tx - shoeX) * e + 0.5)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
-
-        restoreFelt(prevX, prevY)
-        redrawStaticHands()
-        drawCard(nx, ny, card, true)
-        prevX, prevY = nx, ny
+        UI.anim.x, UI.anim.y = nx, ny
+        paintFrame(nx, ny, true)
 
         if step < steps then
-            UI.schedule(0.035, frame)
+            UI.schedule(0.04, frame)
         else
-            restoreFelt(prevX, prevY)
             table.insert(hand, card)
             UI.anim = nil
-            drawCard(tx, ty, card, faceDown and true or false)
-            redrawStaticHands()
+            paintFrame(nil, nil, false)
+            -- финальная карта уже в hand — paintFrame её нарисует
             if onDone then onDone() end
         end
     end
