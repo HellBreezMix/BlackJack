@@ -887,9 +887,11 @@ local FELT_PAT  = 0x1A9A5C
 local TABLE_RAIL = 0x5C3A1E
 local TABLE_RAIL_DARK = 0x3D2510
 local _screenBuf = nil
-local _tableBuf = nil   -- снимок: сукно + окантовка
+local _tableBuf = nil   -- снимок: сукно + окантовка + масти в углах
 local _tableReady = false
 local _tableMw = 0
+local _tableVer = 0
+local TABLE_CACHE_VER = 3  -- bump = пересобрать фон
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
@@ -909,38 +911,94 @@ function paintRailToActive(mw)
     fill(mw - 1, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
 end
 
--- Крупные масти в углах (куда карты не долетают)
+-- Крупные пиксельные масти (≈ карта) — только в буфер стола, не мигают
 function drawCornerSuits(mw)
-    local dim = 0x0A5A35
-    gpu.setBackground(FELT_BASE)
-    gpu.setForeground(dim)
-    local function stamp(x, y, suit)
-        -- блок 3x3 из масти = «огромная» масть
-        for dy = 0, 2 do
-            for dx = 0, 2 do
-                local ch = suit
-                if dy == 1 and dx == 1 then ch = suit end
-                gpu.set(x + dx, y + dy, ch)
+    local bitmaps = {
+        spade = {
+            "......#......",
+            ".....###.....",
+            "....#####....",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            "#############",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            "......#......",
+        },
+        heart = {
+            "..###...###..",
+            ".#####.#####.",
+            "#############",
+            "#############",
+            "#############",
+            ".###########.",
+            "..#########..",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            "......#......",
+        },
+        diamond = {
+            "......#......",
+            ".....###.....",
+            "....#####....",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            "..#########..",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            "......#......",
+        },
+        club = {
+            "....#####....",
+            "...#######...",
+            "...#######...",
+            ".#####.#####.",
+            "#############",
+            "#############",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            ".....###.....",
+            "......#......",
+        },
+    }
+
+    local function drawBmp(ox, oy, bmp, fg)
+        gpu.setBackground(FELT_BASE)
+        gpu.setForeground(fg)
+        for row = 1, #bmp do
+            local line = bmp[row]
+            for col = 1, #line do
+                if line:sub(col, col) == "#" then
+                    local x = ox + col - 1
+                    local y = oy + row - 1
+                    if x >= 4 and y >= 4 and x < mw - 1 and y < UI.h - 1 then
+                        gpu.set(x, y, "█")
+                    end
+                end
             end
         end
     end
-    -- левый верх
-    stamp(3, 3, "♠")
-    stamp(7, 4, "♥")
-    -- левый низ
-    stamp(3, UI.h - 6, "♦")
-    stamp(7, UI.h - 5, "♣")
-    -- правый низ (колода справа сверху — не трогаем)
-    if mw > 30 then
-        stamp(mw - 10, UI.h - 6, "♠")
-        stamp(mw - 6, UI.h - 5, "♥")
-    end
+
+    local pad = 4
+    local bw, bh = 13, 11
+
+    -- ♠ левый верх | ♥ правый верх | ♦ левый низ | ♣ правый низ
+    drawBmp(pad, pad, bitmaps.spade, 0x1A3A28)
+    drawBmp(mw - pad - bw + 1, pad, bitmaps.heart, 0x8B2020)
+    drawBmp(pad, UI.h - pad - bh + 1, bitmaps.diamond, 0x8B2020)
+    drawBmp(mw - pad - bw + 1, UI.h - pad - bh + 1, bitmaps.club, 0x1A3A28)
 end
 
 -- Один раз: сукно + дерево → картинка в буфере
 function ensureTableCache(mw)
     mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
-    if _tableReady and _tableBuf and _tableMw == mw then return true end
+    if _tableReady and _tableBuf and _tableMw == mw and _tableVer == TABLE_CACHE_VER then return true end
     if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
         return false
     end
@@ -956,6 +1014,7 @@ function ensureTableCache(mw)
     pcall(gpu.setActiveBuffer, 0)
     _tableReady = true
     _tableMw = mw
+    _tableVer = TABLE_CACHE_VER
     return true
 end
 
@@ -1474,8 +1533,7 @@ function UI.drawMainArea()
             return math.max(3, math.floor((mw - handWidth(n)) / 2) - 6)
         end
 
-        -- углы уже в картинке стола; если нет буфера — дорисуем
-        if not _tableBuf then drawCornerSuits(mw) end
+        -- масти только из фоновой картинки стола (не перерисовываем)
 
         -- ДИЛЕР: карты + крупный счёт справа
         local dCount = math.max(1, #Game.dealer.hand)
@@ -2290,6 +2348,7 @@ local function boot()
     _tableReady = false
     _tableBuf = nil
     _tableMw = 0
+    _tableVer = 0
     _screenBuf = nil
     _welcomeReady = false
     _inFrame = false
