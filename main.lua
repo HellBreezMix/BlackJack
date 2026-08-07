@@ -891,7 +891,7 @@ local _tableBuf = nil   -- снимок: сукно + окантовка + ма�
 local _tableReady = false
 local _tableMw = 0
 local _tableVer = 0
-local TABLE_CACHE_VER = 7  -- bump = пересобрать фон
+local TABLE_CACHE_VER = 8  -- bump = пересобрать фон
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
@@ -913,8 +913,9 @@ end
 
 -- Крупные пиксельные масти (≈ карта) — только в буфер стола, не мигают
 function drawCornerSuits(mw)
-    -- ровные симметричные фигуры; бубны/пики слегка подчищены
+    -- строго симметричные битмапы (центр = колонка 6 из 11)
     local bitmaps = {
+        -- пики
         spade = {
             ".....#.....",
             "....###....",
@@ -928,7 +929,6 @@ function drawCornerSuits(mw)
             "....###....",
             ".....#.....",
         },
-        -- червы: два круга сверху + низ
         heart = {
             ".###...###.",
             "#####.#####",
@@ -955,7 +955,7 @@ function drawCornerSuits(mw)
             "...........",
             "...........",
         },
-        -- трефы: три шара (лево/право/верх) + ножка
+        -- трефы: верхний шар + левый/правый + ножка (зеркально)
         club = {
             "....###....",
             "...#####...",
@@ -992,7 +992,6 @@ function drawCornerSuits(mw)
     local bottomPad = 4
     local topPad = 7
     local bw = 11
-
     local function bh(bmp) return #bmp end
 
     drawBmp(sidePad, topPad, bitmaps.spade, 0x1A3A28)
