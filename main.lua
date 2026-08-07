@@ -1005,8 +1005,11 @@ function drawScreen()
     if welcomeMode then
         if not _welcomeReady then
             beginFrame()
-            blitTable(UI.w)
-            -- rail уже в картинке для mw; для full width дорисуем
+            if _inFrame and _tableBuf and ensureTableCache(mw) then
+                pcall(gpu.bitblt, _screenBuf, 1, 1, UI.w, UI.h, _tableBuf, 1, 1)
+            else
+                blitTable(UI.w)
+            end
             paintRailToActive(mw)
             pcall(UI.drawWelcomeArt, mw)
             fill(1, 1, UI.w, 1, config.colors.header)
@@ -1024,13 +1027,23 @@ function drawScreen()
     end
 
     _welcomeReady = false
-    beginFrame()
 
-    -- картинка стола (сукно+дерево)
-    if _inFrame and _tableBuf and ensureTableCache(mw) then
-        pcall(gpu.bitblt, _screenBuf, 1, 1, mw, UI.h, _tableBuf, 1, 1)
+    -- Админ / ввод / alert: без полной перерисовки узора — solid + double-buffer
+    local isAdmin = (UI.screen == "admin" or UI.screen == "admin_add_item"
+        or UI.screen == "admin_edit_item")
+
+    beginFrame()
+    local dstActive = _inFrame
+
+    if isAdmin or UI.alert or UI.input.active then
+        -- быстрый фон игровой зоны (без bitblt узора = меньше мигания вкладок)
+        fill(1, 1, mw, UI.h, FELT_BASE)
     else
-        blitTable(mw)
+        if dstActive and _tableBuf and ensureTableCache(mw) then
+            pcall(gpu.bitblt, _screenBuf, 1, 1, mw, UI.h, _tableBuf, 1, 1)
+        else
+            blitTable(mw)
+        end
     end
 
     fill(mw + 1, 1, UI.w - mw, UI.h, config.colors.panel)
@@ -2015,16 +2028,25 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 6
+    local steps = 5
     local step = 0
+    local prevX, prevY = nil, nil
 
     ensureTableCache(mw)
+
+    -- один полный кадр только в самом начале раздачи
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
         UI.draw()
     end
 
     UI.anim = { card = card, hidden = true, x = shoeX, y = shoeY, who = who }
+
+    local function restoreRect(x, y)
+        if not x or not _tableBuf then return end
+        pcall(gpu.setActiveBuffer, 0)
+        pcall(gpu.bitblt, 0, x, y, CARD_W, CARD_H, _tableBuf, x, y)
+    end
 
     local function hw(n)
         n = math.max(1, n)
@@ -2034,15 +2056,7 @@ function UI.flyCard(who, card, faceDown, onDone)
         return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
     end
 
-    -- Картинка стола + карты. Без перерисовки окантовки и сайдбара.
-    local function paintPlay(fx, fy)
-        pcall(gpu.setActiveBuffer, 0)
-        if _tableBuf then
-            pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _tableBuf, 1, 1)
-        else
-            blitTable(mw)
-        end
-
+    local function redrawStatic()
         if #Game.dealer.hand > 0 then
             local hide = (Game.state == "dealing" or Game.state == "playing")
                 and not Game.finished and Game.state ~= "dealer_turn"
@@ -2059,10 +2073,12 @@ function UI.flyCard(who, card, faceDown, onDone)
                 tostring(Cards.handValue(Game.player.hand)), config.colors.textGold)
         end
         drawShoe(mw)
-        if fx then drawCard(fx, fy, card, true) end
-        centerText(36, "Ставка: " .. tostring(Game.bet) .. " " .. config.currency.symbol,
-            config.colors.text, FELT_BASE, mw)
     end
+
+    -- старт: карта у колоды
+    pcall(gpu.setActiveBuffer, 0)
+    drawCard(shoeX, shoeY, card, true)
+    prevX, prevY = shoeX, shoeY
 
     local function frame()
         step = step + 1
@@ -2070,13 +2086,20 @@ function UI.flyCard(who, card, faceDown, onDone)
         local e = t * t * (3 - 2 * t)
         local nx = math.floor(shoeX + (tx - shoeX) * e + 0.5)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
-        paintPlay(nx, ny)
+
+        -- только область летящей карты (остальные карты не трогаем)
+        restoreRect(prevX, prevY)
+        drawCard(nx, ny, card, true)
+        prevX, prevY = nx, ny
+
         if step < steps then
-            UI.schedule(0.04, frame)
+            UI.schedule(0.035, frame)
         else
+            restoreRect(prevX, prevY)
             table.insert(hand, card)
             UI.anim = nil
-            paintPlay(nil, nil)
+            -- один раз отрисовать руки в финале
+            redrawStatic()
             if onDone then onDone() end
         end
     end
