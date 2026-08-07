@@ -891,7 +891,7 @@ local _tableBuf = nil   -- снимок: сукно + окантовка + ма�
 local _tableReady = false
 local _tableMw = 0
 local _tableVer = 0
-local TABLE_CACHE_VER = 9  -- bump = пересобрать фон
+local TABLE_CACHE_VER = 10  -- bump = пересобрать фон
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
@@ -913,61 +913,59 @@ end
 
 -- Крупные пиксельные масти (≈ карта) — только в буфер стола, не мигают
 function drawCornerSuits(mw)
-    -- классические силуэты мастей (как на картах)
+    -- узнаваемые классические масти 13x11
     local bitmaps = {
-        -- пики: остриё + «крылья» + ножка с основанием
         spade = {
-            ".....#.....",
-            "....###....",
-            "...#####...",
-            "..#######..",
-            ".#########.",
-            "###########",
-            ".#########.",
-            "..#######..",
-            "....###....",
-            "....###....",
-            "...#####...",
+            "......#......",
+            ".....###.....",
+            "....#####....",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            "#############",
+            ".###########.",
+            ".....###.....",
+            ".....###.....",
+            "....#####....",
         },
         heart = {
-            ".###...###.",
-            "#####.#####",
-            "#####.#####",
-            "###########",
-            "###########",
-            ".#########.",
-            "..#######..",
-            "...#####...",
-            "....###....",
-            ".....#.....",
-            "...........",
+            "..###...###..",
+            ".#####.#####.",
+            "#############",
+            "#############",
+            "#############",
+            ".###########.",
+            "..#########..",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            "......#......",
         },
         diamond = {
-            ".....#.....",
-            "....###....",
-            "...#####...",
-            "..#######..",
-            ".#########.",
-            "..#######..",
-            "...#####...",
-            "....###....",
-            ".....#.....",
-            "...........",
-            "...........",
+            "......#......",
+            ".....###.....",
+            "....#####....",
+            "...#######...",
+            "..#########..",
+            ".###########.",
+            "..#########..",
+            "...#######...",
+            "....#####....",
+            ".....###.....",
+            "......#......",
         },
-        -- трефы: три «листа» клевера + ножка
         club = {
-            "....###....",
-            "...#####...",
-            "...#####...",
-            "....###....",
-            ".###...###.",
-            "#####.#####",
-            "###########",
-            ".#########.",
-            "....###....",
-            "....###....",
-            "...#####...",
+            ".....###.....",
+            "....#####....",
+            "....#####....",
+            ".....###.....",
+            ".####...####.",
+            "#####...#####",
+            "#############",
+            ".###########.",
+            ".....###.....",
+            ".....###.....",
+            "....#####....",
         },
     }
 
@@ -991,7 +989,7 @@ function drawCornerSuits(mw)
     local sidePad = 4
     local bottomPad = 4
     local topPad = 7
-    local bw = 11
+    local bw = 13
     local function bh(bmp) return #bmp end
 
     drawBmp(sidePad, topPad, bitmaps.spade, 0x1A3A28)
@@ -1003,16 +1001,27 @@ end
 -- Один раз: сукно + дерево → картинка в буфере
 function ensureTableCache(mw)
     mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
-    if _tableReady and _tableBuf and _tableMw == mw and _tableVer == TABLE_CACHE_VER then return true end
+    if _tableReady and _tableBuf and _tableMw == mw and _tableVer == TABLE_CACHE_VER then
+        return true
+    end
+    -- сброс старого снимка (иначе масти «залипают»)
+    if _tableBuf and gpu.freeBuffer then
+        pcall(gpu.freeBuffer, _tableBuf)
+    end
+    _tableBuf = nil
+    _tableReady = false
+
     if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
         return false
     end
-    if not _tableBuf then
-        local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-        if not ok or not id then return false end
-        _tableBuf = id
+    local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
+    if not ok or not id then return false end
+    _tableBuf = id
+    if not pcall(gpu.setActiveBuffer, _tableBuf) then
+        pcall(gpu.freeBuffer, _tableBuf)
+        _tableBuf = nil
+        return false
     end
-    if not pcall(gpu.setActiveBuffer, _tableBuf) then return false end
     paintFeltToActive(UI.w, UI.h)
     paintRailToActive(mw)
     drawCornerSuits(mw)
