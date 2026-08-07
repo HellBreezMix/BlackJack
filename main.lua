@@ -995,6 +995,20 @@ end
 
 local _lastFeltPaint = 0
 
+
+-- окантовка игрового стола (слева от сайдбара)
+local function drawTableRail(mw)
+    if mw < 10 then return end
+    fill(1, 2, mw, 1, TABLE_RAIL)
+    fill(1, UI.h, mw, 1, TABLE_RAIL)
+    fill(1, 2, 1, UI.h - 1, TABLE_RAIL)
+    fill(mw, 2, 1, UI.h - 1, TABLE_RAIL)
+    fill(2, 3, mw - 2, 1, TABLE_RAIL_DARK)
+    fill(2, UI.h - 1, mw - 2, 1, TABLE_RAIL_DARK)
+    fill(2, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
+    fill(mw - 1, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
+end
+
 local function drawScreen()
     UI.clearButtons()
     local mw = UI.w - (config.ui.sidebarWidth or 28)
