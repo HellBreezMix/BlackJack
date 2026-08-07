@@ -1,7 +1,7 @@
 --------------------------------------------------
 -- BlackJack Casino v2.4
 -- main.lua
--- Автор: hellbreez + Grok
+-- Автор: hellbreez
 --------------------------------------------------
 
 -- пути поиска config.lua
@@ -891,7 +891,7 @@ local _tableBuf = nil   -- снимок: сукно + окантовка + ма�
 local _tableReady = false
 local _tableMw = 0
 local _tableVer = 0
-local TABLE_CACHE_VER = 10  -- bump = пересобрать фон
+local TABLE_CACHE_VER = 11  -- bump = пересобрать фон
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
@@ -959,8 +959,8 @@ function drawCornerSuits(mw)
             "....#####....",
             "....#####....",
             ".....###.....",
-            ".####...####.",
-            "#####...#####",
+            ".###########.",
+            "#############",
             "#############",
             ".###########.",
             ".....###.....",
@@ -1424,6 +1424,15 @@ function UI.drawSidebar()
         text(sx + sw - unicode.len(balStr) - 3, y, balStr, config.colors.textGold, config.colors.panel)
         y = y + 1
     end
+
+    -- подпись внизу правого столбца
+    local credit = "by hellbreez"
+    local cy = UI.h
+    local cx = sx + math.floor((sw - unicode.len(credit)) / 2)
+    if cx < sx + 1 then cx = sx + 1 end
+    gpu.setBackground(config.colors.panel)
+    gpu.setForeground(0x000000)
+    gpu.set(cx, cy, credit)
 end
 
 --------------------------------------------------
