@@ -37,7 +37,6 @@ if not gpu then
     return
 end
 
-print("BlackJack: загрузка...")
 
 local okCfg, config = pcall(require, "config")
 if not okCfg or not config then
@@ -45,7 +44,6 @@ if not okCfg or not config then
     print("Положи config.lua в /BlackJack/config.lua")
     return
 end
-print("config OK")
 
 -- Сукно стола (жёстко, не зависит от config)
 config.colors.background  = 0x0D6B3F
@@ -1012,7 +1010,8 @@ local function drawScreen()
             local dst = useBuf and _screenBuf or 0
             pcall(gpu.bitblt, dst, 1, 1, UI.w, UI.h, _feltBuf, 1, 1)
         else
-            fill(1, 1, UI.w, UI.h, FELT_BASE)
+            -- узор без буфера: рисуем каждый кадр (может чуть медленнее, но без «пустого» стола)
+            paintFeltToActive(UI.w, UI.h)
         end
         drawTableRail(mw)
         UI.drawHeader()
@@ -1212,7 +1211,6 @@ function UI.drawInputModal()
     if unicode.len(display) > fieldW - 2 then display = unicode.sub(display, -(fieldW - 2)) end
     text(fieldX + 1, by + 3, display .. "▌", config.colors.textGold, 0x1A1A1A)
     text(bx + 2, by + 5, "Enter — ОК  |  Esc — отмена", config.colors.textDark, config.colors.panel)
-    text(bx + 2, by + 6, "Поддерживается русский язык", config.colors.textDark, config.colors.panel)
     UI.addButton(bx + 2, by + 7, 12, 2, "ОК", config.colors.buttonGreen, 0xFFFFFF, function() UI.closeInput(true) end)
     UI.addButton(bx + 16, by + 7, 12, 2, "ОТМЕНА", config.colors.button, config.colors.text, function() UI.closeInput(false) end)
 end
@@ -1734,12 +1732,12 @@ function UI.drawAdminOdds(mw)
     end)
 
     text(4, 19, "Дилер берёт soft 17:", config.colors.textDark, config.colors.background)
-    onOff(24, 19, Settings.data.hitSoft17 == true,
+    onOff(34, 19, Settings.data.hitSoft17 == true,
         function() Settings.data.hitSoft17 = true; Settings.save(); UI.draw() end,
         function() Settings.data.hitSoft17 = false; Settings.save(); UI.draw() end)
 
     text(4, 22, "Мешать каждую раздачу:", config.colors.textDark, config.colors.background)
-    onOff(24, 22, Settings.data.shuffleEvery == true,
+    onOff(34, 22, Settings.data.shuffleEvery == true,
         function() Settings.data.shuffleEvery = true; Settings.save(); UI.draw() end,
         function() Settings.data.shuffleEvery = false; Settings.save(); UI.draw() end)
 
@@ -1781,7 +1779,7 @@ function UI.drawAdminOdds(mw)
     end)
 
     text(4, 36, "Меньше Blackjack:", config.colors.textDark, config.colors.background)
-    onOff(24, 36, Settings.data.lessBJ == true,
+    onOff(34, 36, Settings.data.lessBJ == true,
         function() Settings.data.lessBJ = true; Settings.save(); UI.draw() end,
         function() Settings.data.lessBJ = false; Settings.save(); UI.draw() end)
 end
@@ -1888,8 +1886,7 @@ function UI.login(name)
 
     local ok, err = pcall(UI.draw)
     if not ok then
-        print("Ошибка UI после входа: " .. tostring(err))
-        pcall(log, "ОШИБКА", name, "login draw: " .. tostring(err))
+                pcall(log, "ОШИБКА", name, "login draw: " .. tostring(err))
     end
     pcall(log, "ВХОД", name, "Авторизация")
 end
@@ -2031,8 +2028,13 @@ function UI.flyCard(who, card, faceDown, onDone)
 
     local function eraseAt(x, y)
         if not x then return end
-        gpu.setBackground(FELT_BASE)
-        gpu.fill(x, y, CARD_W, CARD_H, " ")
+        -- восстанавливаем узор сукна из кэша (без мигания всего стола)
+        if _feltBuf and gpu.bitblt then
+            pcall(gpu.bitblt, 0, x, y, CARD_W, CARD_H, _feltBuf, x, y)
+        else
+            gpu.setBackground(FELT_BASE)
+            gpu.fill(x, y, CARD_W, CARD_H, " ")
+        end
     end
 
     local function frame()
@@ -2212,8 +2214,7 @@ end
 
 --------------------------------------------------
 local function boot()
-    print("boot: GPU...")
-    pcall(function()
+        pcall(function()
         if gpu.maxDepth then gpu.setDepth(gpu.maxDepth()) end
     end)
 
@@ -2242,8 +2243,7 @@ local function boot()
     pcall(gpu.setBackground, FELT_BASE or 0x0D6B3F)
     pcall(gpu.fill, 1, 1, UI.w, UI.h, " ")
 
-    print("boot: data " .. UI.w .. "x" .. UI.h)
-    ensureDir(config.paths.data)
+        ensureDir(config.paths.data)
     Players.load()
     Settings.load()
     Hardware.init()
@@ -2258,13 +2258,11 @@ local function boot()
 
     pcall(log, "СИСТЕМА", "-", "BlackJack start " .. UI.w .. "x" .. UI.h)
 
-    print("boot: UI...")
-    local okDraw, drawErr = pcall(UI.draw)
+        local okDraw, drawErr = pcall(UI.draw)
     if not okDraw then
         error("UI.draw: " .. tostring(drawErr))
     end
-    print("boot: OK, жду касаний (Ctrl+C выход)")
-
+    
     while true do
         local okEv, ev1, ev2, ev3, ev4, ev5, ev6 = pcall(event.pull, 0.5)
         if not okEv then
@@ -2295,13 +2293,12 @@ local function boot()
                     pcall(log, "ОШИБКА", "-", "touch: " .. tostring(tErr))
                 end
             elseif e == "interrupted" then
-                break
+                -- Ctrl+C отключён: игроки не могут выключить программу
             end
         end
     end
 end
 
-print("BlackJack: старт...")
 local ok, err = pcall(boot)
 if not ok then
     pcall(function()
@@ -2312,6 +2309,4 @@ if not ok then
     print(tostring(err))
     print("========================================")
     pcall(log, "ОШИБКА", "-", tostring(err))
-else
-    print("BlackJack: выход.")
 end
