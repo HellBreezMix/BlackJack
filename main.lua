@@ -891,7 +891,7 @@ local _tableBuf = nil   -- снимок: сукно + окантовка + ма�
 local _tableReady = false
 local _tableMw = 0
 local _tableVer = 0
-local TABLE_CACHE_VER = 3  -- bump = пересобрать фон
+local TABLE_CACHE_VER = 4  -- bump = пересобрать фон
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
@@ -913,58 +913,59 @@ end
 
 -- Крупные пиксельные масти (≈ карта) — только в буфер стола, не мигают
 function drawCornerSuits(mw)
+    -- ~12x10, узнаваемые формы
     local bitmaps = {
+        -- пики: остриё вверх + ножка
         spade = {
-            "......#......",
-            ".....###.....",
-            "....#####....",
-            "...#######...",
-            "..#########..",
-            ".###########.",
-            "#############",
-            "...#######...",
-            "....#####....",
-            ".....###.....",
-            "......#......",
+            ".....#.....",
+            "....###....",
+            "...#####...",
+            "..#######..",
+            ".#########.",
+            "###########",
+            ".#########.",
+            "....###....",
+            "....###....",
+            ".....#.....",
         },
+        -- червы
         heart = {
-            "..###...###..",
-            ".#####.#####.",
-            "#############",
-            "#############",
-            "#############",
-            ".###########.",
-            "..#########..",
-            "...#######...",
-            "....#####....",
-            ".....###.....",
-            "......#......",
+            "..##...##..",
+            ".###.###.#.",
+            "###########",
+            "###########",
+            ".#########.",
+            "..#######..",
+            "...#####...",
+            "....###....",
+            ".....#.....",
+            "...........",
         },
+        -- бубны
         diamond = {
-            "......#......",
-            ".....###.....",
-            "....#####....",
-            "...#######...",
-            "..#########..",
-            ".###########.",
-            "..#########..",
-            "...#######...",
-            "....#####....",
-            ".....###.....",
-            "......#......",
+            ".....#.....",
+            "....###....",
+            "...#####...",
+            "..#######..",
+            ".#########.",
+            "..#######..",
+            "...#####...",
+            "....###....",
+            ".....#.....",
+            "...........",
         },
+        -- трефы: три «листа» + ножка
         club = {
-            "....#####....",
-            "...#######...",
-            "...#######...",
-            ".#####.#####.",
-            "#############",
-            "#############",
-            "...#######...",
-            "....#####....",
-            ".....###.....",
-            ".....###.....",
-            "......#......",
+            "....###....",
+            "...#####...",
+            "...#####...",
+            ".###.#####.",
+            "###########",
+            "###########",
+            "....###....",
+            "....###....",
+            "....###....",
+            ".....#.....",
         },
     }
 
@@ -986,9 +987,9 @@ function drawCornerSuits(mw)
     end
 
     local pad = 4
-    local bw, bh = 13, 11
+    local bw, bh = 11, 10
 
-    -- ♠ левый верх | ♥ правый верх | ♦ левый низ | ♣ правый низ
+    -- ♠ TL  ♥ TR  ♦ BL  ♣ BR
     drawBmp(pad, pad, bitmaps.spade, 0x1A3A28)
     drawBmp(mw - pad - bw + 1, pad, bitmaps.heart, 0x8B2020)
     drawBmp(pad, UI.h - pad - bh + 1, bitmaps.diamond, 0x8B2020)
@@ -1254,12 +1255,12 @@ function drawHand(x, y, hand, hideFirst)
 end
 
 function drawShoe(mw)
-    local sx = math.max(3, mw - CARD_W - 3)
-    local sy = 6
-    -- стопка колоды
+    -- колода по центру правой стороны (не в углу с мастью)
+    local sx = math.max(3, mw - CARD_W - 4)
+    local sy = math.max(8, math.floor(UI.h / 2) - math.floor(CARD_H / 2) - 2)
     drawCard(sx + 1, sy + 1, { rank = "A", suit = "♠" }, true)
     drawCard(sx, sy, { rank = "A", suit = "♠" }, true)
-    text(sx, sy + CARD_H, "КОЛОДА", config.colors.textDark, config.colors.background)
+    text(sx, sy + CARD_H, "КОЛОДА", config.colors.textDark, FELT_BASE)
     return sx, sy
 end
 
@@ -2104,8 +2105,8 @@ end
 -- Полёт карты из колоды в руку
 function UI.flyCard(who, card, faceDown, onDone)
     local mw = UI.w - config.ui.sidebarWidth
-    local shoeX = math.max(3, mw - CARD_W - 3)
-    local shoeY = 6
+    local shoeX = math.max(3, mw - CARD_W - 4)
+    local shoeY = math.max(8, math.floor(UI.h / 2) - math.floor(CARD_H / 2) - 2)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
