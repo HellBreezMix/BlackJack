@@ -2028,10 +2028,10 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 4
+    -- больше кадров = плавнее; стоячие карты не перерисовываем
+    local steps = 10
     local step = 0
-
-    pcall(ensureTableCache, mw)
+    local prevX, prevY = nil, nil
 
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
@@ -2048,21 +2048,16 @@ function UI.flyCard(who, card, faceDown, onDone)
         return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
     end
 
-    local function paintPlay(fx, fy)
+    local function eraseCard(x, y)
+        if not x then return end
         pcall(gpu.setActiveBuffer, 0)
-
-        -- 1) ЖЁСТКАЯ очистка игровой зоны (гасит любые «призраки»)
+        -- solid под картой (узор на время анимации не восстанавливаем)
         gpu.setBackground(FELT_BASE)
-        gpu.fill(1, 1, mw, UI.h, " ")
+        gpu.fill(x, y, CARD_W, CARD_H, " ")
+    end
 
-        -- 2) Картинка стола поверх (если буфер есть)
-        if _tableBuf then
-            pcall(gpu.bitblt, 0, 1, 1, mw, UI.h, _tableBuf, 1, 1)
-        else
-            paintRailToActive(mw)
-        end
-
-        -- 3) Карты
+    local function redrawHands()
+        pcall(gpu.setActiveBuffer, 0)
         if #Game.dealer.hand > 0 then
             local hide = (Game.state == "dealing" or Game.state == "playing")
                 and not Game.finished and Game.state ~= "dealer_turn"
@@ -2079,28 +2074,33 @@ function UI.flyCard(who, card, faceDown, onDone)
                 tostring(Cards.handValue(Game.player.hand)), config.colors.textGold)
         end
         drawShoe(mw)
-
-        if fx then
-            drawCard(fx, fy, card, true)
-        end
-
-        centerText(36, "Ставка: " .. tostring(Game.bet or 0) .. " " .. config.currency.symbol,
-            config.colors.text, FELT_BASE, mw)
     end
+
+    -- старт у колоды
+    pcall(gpu.setActiveBuffer, 0)
+    drawCard(shoeX, shoeY, card, true)
+    prevX, prevY = shoeX, shoeY
 
     local function frame()
         step = step + 1
         local t = step / steps
-        local e = t * t * (3 - 2 * t)
+        local e = t * t * (3 - 2 * t)  -- smoothstep
         local nx = math.floor(shoeX + (tx - shoeX) * e + 0.5)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
-        paintPlay(nx, ny)
+
+        -- только след летящей карты (solid), остальные карты не трогаем → нет мигания
+        eraseCard(prevX, prevY)
+        drawCard(nx, ny, card, true)
+        prevX, prevY = nx, ny
+
         if step < steps then
-            UI.schedule(0.05, frame)
+            UI.schedule(0.03, frame)
         else
+            eraseCard(prevX, prevY)
             table.insert(hand, card)
             UI.anim = nil
-            paintPlay(nil, nil)
+            -- финал: руки на местах (без полного clear стола)
+            redrawHands()
             if onDone then onDone() end
         end
     end
