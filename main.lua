@@ -891,7 +891,7 @@ local _tableBuf = nil   -- снимок: сукно + окантовка + ма�
 local _tableReady = false
 local _tableMw = 0
 local _tableVer = 0
-local TABLE_CACHE_VER = 4  -- bump = пересобрать фон
+local TABLE_CACHE_VER = 5  -- bump = пересобрать фон
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
@@ -913,9 +913,8 @@ end
 
 -- Крупные пиксельные масти (≈ карта) — только в буфер стола, не мигают
 function drawCornerSuits(mw)
-    -- ~12x10, узнаваемые формы
+    -- бубны без изменений; пики/червы/трефы — аккуратнее
     local bitmaps = {
-        -- пики: остриё вверх + ножка
         spade = {
             ".....#.....",
             "....###....",
@@ -923,15 +922,15 @@ function drawCornerSuits(mw)
             "..#######..",
             ".#########.",
             "###########",
-            ".#########.",
+            ".###.###.#.",
             "....###....",
             "....###....",
+            "...#####...",
             ".....#.....",
         },
-        -- червы
         heart = {
-            "..##...##..",
-            ".###.###.#.",
+            ".###...###.",
+            "#####.#####",
             "###########",
             "###########",
             ".#########.",
@@ -940,8 +939,9 @@ function drawCornerSuits(mw)
             "....###....",
             ".....#.....",
             "...........",
+            "...........",
         },
-        -- бубны
+        -- бубны — как были (не трогаем форму)
         diamond = {
             ".....#.....",
             "....###....",
@@ -954,17 +954,17 @@ function drawCornerSuits(mw)
             ".....#.....",
             "...........",
         },
-        -- трефы: три «листа» + ножка
         club = {
             "....###....",
             "...#####...",
             "...#####...",
-            ".###.#####.",
+            "....###....",
+            ".###.###.#.",
             "###########",
             "###########",
             "....###....",
             "....###....",
-            "....###....",
+            "...#####...",
             ".....#.....",
         },
     }
@@ -986,14 +986,19 @@ function drawCornerSuits(mw)
         end
     end
 
-    local pad = 4
-    local bw, bh = 11, 10
+    local sidePad = 4
+    local bottomPad = 4
+    local topPad = 7  -- +3 к прежним 4, симметрия с низом
+    local bw = 11
 
-    -- ♠ TL  ♥ TR  ♦ BL  ♣ BR
-    drawBmp(pad, pad, bitmaps.spade, 0x1A3A28)
-    drawBmp(mw - pad - bw + 1, pad, bitmaps.heart, 0x8B2020)
-    drawBmp(pad, UI.h - pad - bh + 1, bitmaps.diamond, 0x8B2020)
-    drawBmp(mw - pad - bw + 1, UI.h - pad - bh + 1, bitmaps.club, 0x1A3A28)
+    local function bh(bmp) return #bmp end
+
+    -- ♠ левый верх (+3 от верха) | ♥ правый верх
+    drawBmp(sidePad, topPad, bitmaps.spade, 0x1A3A28)
+    drawBmp(mw - sidePad - bw + 1, topPad, bitmaps.heart, 0x8B2020)
+    -- ♦ левый низ (без изменений позиции/формы) | ♣ правый низ
+    drawBmp(sidePad, UI.h - bottomPad - bh(bitmaps.diamond) + 1, bitmaps.diamond, 0x8B2020)
+    drawBmp(mw - sidePad - bw + 1, UI.h - bottomPad - bh(bitmaps.club) + 1, bitmaps.club, 0x1A3A28)
 end
 
 -- Один раз: сукно + дерево → картинка в буфере
