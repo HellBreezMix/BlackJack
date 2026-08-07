@@ -1124,7 +1124,7 @@ end
 -- крупный блок счёта справа от карт
 local function drawScoreBadge(x, y, label, score, accent)
     accent = accent or config.colors.textGold
-    local sw, sh = 14, 7
+    local sw, sh = 14, 6
     fill(x, y, sw, sh, 0x083528)
     gpu.setForeground(0x1A7A4A)
     gpu.setBackground(0x083528)
@@ -1136,20 +1136,17 @@ local function drawScoreBadge(x, y, label, score, accent)
     end
     gpu.set(x, y, "┌"); gpu.set(x + sw - 1, y, "┐")
     gpu.set(x, y + sh - 1, "└"); gpu.set(x + sw - 1, y + sh - 1, "┘")
-    -- подпись
     local lx = x + math.floor((sw - unicode.len(label)) / 2)
     text(lx, y + 1, label, config.colors.text, 0x083528)
-    -- счёт крупно (символы с пробелами для «масштаба»)
     local s = tostring(score)
     local spaced = s
-    if unicode.len(s) == 1 then
+    if #s == 2 then
+        spaced = s:sub(1, 1) .. " " .. s:sub(2, 2)
+    elseif #s == 1 then
         spaced = " " .. s .. " "
-    elseif unicode.len(s) == 2 then
-        spaced = s:sub(1,1) .. " " .. s:sub(2,2)
     end
     local sx = x + math.floor((sw - unicode.len(spaced)) / 2)
     text(sx, y + 3, spaced, accent, 0x083528)
-    text(sx, y + 4, spaced, accent, 0x083528)  -- двойная строка = визуально выше
 end
 
 local function drawHand(x, y, hand, hideFirst)
@@ -2016,6 +2013,9 @@ function UI.flyCard(who, card, faceDown, onDone)
     local step = 0
     local prevX, prevY = nil, nil
 
+    -- кэш узора обязателен, чтобы след карты не оставлял «дыры»
+    ensureFeltCache()
+
     if #Game.player.hand == 0 and #Game.dealer.hand == 0 and idx == 1 then
         UI.anim = nil
         UI.draw()
@@ -2026,15 +2026,57 @@ function UI.flyCard(who, card, faceDown, onDone)
     drawCard(shoeX, shoeY, card, true)
     prevX, prevY = shoeX, shoeY
 
-    local function eraseAt(x, y)
+    local function restoreFelt(x, y)
         if not x then return end
-        -- восстанавливаем узор сукна из кэша (без мигания всего стола)
         if _feltBuf and gpu.bitblt then
+            pcall(gpu.setActiveBuffer, 0)
             pcall(gpu.bitblt, 0, x, y, CARD_W, CARD_H, _feltBuf, x, y)
         else
             gpu.setBackground(FELT_BASE)
             gpu.fill(x, y, CARD_W, CARD_H, " ")
+            -- точечный узор в области карты
+            if not _feltBuf then
+                gpu.setBackground(FELT_BASE)
+                gpu.setForeground(FELT_PAT)
+                local suits = { "♠", "♥", "♦", "♣" }
+                local si = 1 + ((x + y) % 4)
+                for row = y, y + CARD_H - 1, 2 do
+                    local shift = (math.floor((row - y) / 2) % 2) * 2
+                    for col = x + shift, x + CARD_W - 1, 4 do
+                        if col >= x and col < x + CARD_W then
+                            gpu.set(col, row, suits[((si - 1) % 4) + 1])
+                            si = si + 1
+                        end
+                    end
+                end
+            end
         end
+    end
+
+    local function redrawStaticHands()
+        local function hw(n)
+            n = math.max(1, n)
+            return (n - 1) * CARD_STEP + CARD_W
+        end
+        local function hx(n)
+            return math.max(3, math.floor((mw - hw(n)) / 2) - 6)
+        end
+        -- дилер
+        if #Game.dealer.hand > 0 then
+            local hide = (Game.state == "dealing" or Game.state == "playing") and not Game.finished and Game.state ~= "dealer_turn"
+            drawHand(hx(#Game.dealer.hand), 7, Game.dealer.hand, hide)
+            local sc = hide and "?" or tostring(Cards.handValue(Game.dealer.hand))
+            if #Game.dealer.hand < 2 then sc = tostring(Cards.handValue(Game.dealer.hand)) end
+            local dN = #Game.dealer.hand
+            drawScoreBadge(hx(dN) + hw(dN) + 3, 8, "ДИЛЕР", sc, config.colors.textGold)
+        end
+        -- игрок
+        if #Game.player.hand > 0 then
+            drawHand(hx(#Game.player.hand), 24, Game.player.hand, false)
+            local pN = #Game.player.hand
+            drawScoreBadge(hx(pN) + hw(pN) + 3, 25, "ВЫ", tostring(Cards.handValue(Game.player.hand)), config.colors.textGold)
+        end
+        drawShoe(mw)
     end
 
     local function frame()
@@ -2044,34 +2086,19 @@ function UI.flyCard(who, card, faceDown, onDone)
         local nx = math.floor(shoeX + (tx - shoeX) * e + 0.5)
         local ny = math.floor(shoeY + (ty - shoeY) * e + 0.5)
 
-        eraseAt(prevX, prevY)
+        restoreFelt(prevX, prevY)
+        redrawStaticHands()
         drawCard(nx, ny, card, true)
         prevX, prevY = nx, ny
 
         if step < steps then
             UI.schedule(0.035, frame)
         else
-            eraseAt(prevX, prevY)
+            restoreFelt(prevX, prevY)
             table.insert(hand, card)
             UI.anim = nil
             drawCard(tx, ty, card, faceDown and true or false)
-
-            local n = #hand
-            local hw = (math.max(1, n) - 1) * CARD_STEP + CARD_W
-            local handStartX = math.max(3, math.floor((mw - hw) / 2) - 6)
-            local badgeX = handStartX + hw + 3
-            local badgeY = (who == "player") and 25 or 8
-            if who == "player" then
-                drawScoreBadge(badgeX, badgeY, "ВЫ", tostring(Cards.handValue(hand)), config.colors.textGold)
-            else
-                local score = "?"
-                if Game.state == "dealer_turn" or Game.state == "result" or Game.finished then
-                    score = tostring(Cards.handValue(hand))
-                elseif n < 2 then
-                    score = tostring(Cards.handValue(hand))
-                end
-                drawScoreBadge(badgeX, badgeY, "ДИЛЕР", score, config.colors.textGold)
-            end
+            redrawStaticHands()
             if onDone then onDone() end
         end
     end
