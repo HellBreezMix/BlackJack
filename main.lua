@@ -850,24 +850,24 @@ function UI.checkButtons(x, y)
     return false
 end
 
-local function fill(x, y, w, h, color)
+function fill(x, y, w, h, color)
     gpu.setBackground(color)
     gpu.fill(x, y, w, h, " ")
 end
 
-local function text(x, y, str, fg, bg)
+function text(x, y, str, fg, bg)
     if bg then gpu.setBackground(bg) end
     if fg then gpu.setForeground(fg) end
     gpu.set(x, y, tostring(str))
 end
 
-local function centerText(y, str, fg, bg, width)
+function centerText(y, str, fg, bg, width)
     width = width or UI.w
     local x = math.floor((width - unicode.len(tostring(str))) / 2) + 1
     text(x, y, str, fg, bg)
 end
 
-local function drawBox(x, y, w, h, borderColor, fillColor)
+function drawBox(x, y, w, h, borderColor, fillColor)
     fill(x, y, w, h, fillColor or config.colors.panel)
     gpu.setForeground(borderColor or config.colors.textBlue)
     gpu.setBackground(fillColor or config.colors.panel)
@@ -891,7 +891,7 @@ local _feltBuf = nil
 local _feltReady = false
 local _welcomeReady = false
 
-local function paintFeltToActive(w, h)
+function paintFeltToActive(w, h)
     fill(1, 1, w, h, FELT_BASE)
     gpu.setBackground(FELT_BASE)
     gpu.setForeground(FELT_PAT)
@@ -907,7 +907,7 @@ local function paintFeltToActive(w, h)
 end
 
 -- узор в прямоугольнике (fallback без буфера)
-local function paintFeltRegion(x, y, w, h)
+function paintFeltRegion(x, y, w, h)
     fill(x, y, w, h, FELT_BASE)
     gpu.setBackground(FELT_BASE)
     gpu.setForeground(FELT_PAT)
@@ -924,7 +924,7 @@ local function paintFeltRegion(x, y, w, h)
     end
 end
 
-local function ensureFeltCache()
+function ensureFeltCache()
     if _feltReady and _feltBuf then return true end
     if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
         return false
@@ -946,7 +946,7 @@ end
 
 local _inFrame = false
 
-local function blitFeltArea(mw)
+function blitFeltArea(mw)
     mw = mw or (UI.w - (config.ui.sidebarWidth or 28))
     if ensureFeltCache() and _feltBuf then
         local dst = (_inFrame and _screenBuf) or 0
@@ -958,7 +958,7 @@ local function blitFeltArea(mw)
     return false
 end
 
-local function ensureScreenBuf()
+function ensureScreenBuf()
     -- только если сукно уже в буфере (не забираем единственный слот)
     if not _feltBuf then ensureFeltCache() end
     if _screenBuf then return true end
@@ -971,7 +971,7 @@ local function ensureScreenBuf()
     return false
 end
 
-local function present()
+function present()
     if _inFrame and _screenBuf then
         pcall(gpu.setActiveBuffer, 0)
         pcall(gpu.bitblt, 0, 1, 1, UI.w, UI.h, _screenBuf, 1, 1)
@@ -980,7 +980,7 @@ local function present()
     pcall(gpu.setActiveBuffer, 0)
 end
 
-local function beginFrame()
+function beginFrame()
     -- double-buffer только при наличии ВТОРОГО буфера
     if _feltBuf and ensureScreenBuf() and _screenBuf then
         if pcall(gpu.setActiveBuffer, _screenBuf) then
@@ -997,7 +997,7 @@ local _lastFeltPaint = 0
 
 
 -- окантовка игрового стола (слева от сайдбара)
-local function drawTableRail(mw)
+function drawTableRail(mw)
     if mw < 10 then return end
     fill(1, 2, mw, 1, TABLE_RAIL)
     fill(1, UI.h, mw, 1, TABLE_RAIL)
@@ -1009,7 +1009,7 @@ local function drawTableRail(mw)
     fill(mw - 1, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
 end
 
-local function drawScreen()
+function drawScreen()
     UI.clearButtons()
     local mw = UI.w - (config.ui.sidebarWidth or 28)
 
@@ -1076,7 +1076,7 @@ end
 local CARD_W, CARD_H = 15, 11
 local CARD_STEP = 16
 
-local function drawCardFrame(x, y, cw, ch, fg, bg)
+function drawCardFrame(x, y, cw, ch, fg, bg)
     gpu.setForeground(fg)
     gpu.setBackground(bg)
     for i = 1, cw - 2 do
@@ -1093,7 +1093,7 @@ local function drawCardFrame(x, y, cw, ch, fg, bg)
     gpu.set(x + cw - 1, y + ch - 1, "┘")
 end
 
-local function drawCard(x, y, card, hidden)
+function drawCard(x, y, card, hidden)
     local cw, ch = CARD_W, CARD_H
     if hidden then
         fill(x, y, cw, ch, config.colors.cardBack)
@@ -1148,7 +1148,7 @@ local function drawCard(x, y, card, hidden)
 end
 
 -- крупный блок счёта справа от карт
-local function drawScoreBadge(x, y, label, score, accent)
+function drawScoreBadge(x, y, label, score, accent)
     accent = accent or config.colors.textGold
     local sw, sh = 12, 5
     fill(x, y, sw, sh, 0x083528)
@@ -1168,13 +1168,13 @@ local function drawScoreBadge(x, y, label, score, accent)
     text(x + math.floor((sw - unicode.len(sc)) / 2), y + 3, sc, accent, 0x083528)
 end
 
-local function drawHand(x, y, hand, hideFirst)
+function drawHand(x, y, hand, hideFirst)
     for i, c in ipairs(hand) do
         drawCard(x + (i - 1) * CARD_STEP, y, c, hideFirst and i == 1)
     end
 end
 
-local function drawShoe(mw)
+function drawShoe(mw)
     local sx = math.max(3, mw - CARD_W - 3)
     local sy = 6
     -- стопка колоды
@@ -1184,7 +1184,7 @@ local function drawShoe(mw)
     return sx, sy
 end
 
-local function handSlotPos(mw, who, index)
+function handSlotPos(mw, who, index)
     local n = math.max(1, index)
     local hw = (n - 1) * CARD_STEP + CARD_W
     -- карты левее центра, справа место под счёт
