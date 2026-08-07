@@ -906,27 +906,22 @@ local function paintFeltToActive(w, h)
     end
 end
 
--- окантовка игрового стола (слева от сайдбара)
-local function drawTableRail(mw)
-    if mw < 10 then return end
-    -- верх
-    fill(1, 2, mw, 1, TABLE_RAIL)
-    -- низ
-    fill(1, UI.h, mw, 1, TABLE_RAIL)
-    -- левый борт
-    fill(1, 2, 1, UI.h - 1, TABLE_RAIL)
-    -- правый борт (перед сайдбаром)
-    fill(mw, 2, 1, UI.h - 1, TABLE_RAIL)
-    -- внутренний край чуть темнее
-    fill(2, 3, mw - 2, 1, TABLE_RAIL_DARK)
-    fill(2, UI.h - 1, mw - 2, 1, TABLE_RAIL_DARK)
-    fill(2, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
-    fill(mw - 1, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
-end
-
-local function drawFelt(x, y, w, h)
-    -- быстрый solid (узор только из кэша)
+-- узор в прямоугольнике (fallback без буфера)
+local function paintFeltRegion(x, y, w, h)
     fill(x, y, w, h, FELT_BASE)
+    gpu.setBackground(FELT_BASE)
+    gpu.setForeground(FELT_PAT)
+    local suits = { "♠", "♥", "♦", "♣" }
+    local si = 1
+    for row = y, y + h - 1, 2 do
+        local shift = (math.floor((row - y) / 2) % 2) * 2
+        for col = x + shift, x + w - 1, 4 do
+            if col >= x and col < x + w and row >= y and row < y + h then
+                gpu.set(col, row, suits[si])
+                si = si % 4 + 1
+            end
+        end
+    end
 end
 
 local function ensureFeltCache()
@@ -934,6 +929,7 @@ local function ensureFeltCache()
     if not (gpu.allocateBuffer and gpu.setActiveBuffer and gpu.bitblt) then
         return false
     end
+    -- сукно важнее double-buffer: выделяем первым
     if not _feltBuf then
         local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
         if not ok or not id then return false end
@@ -948,7 +944,6 @@ local function ensureFeltCache()
     return false
 end
 
--- Только игровая зона (сайдбар НЕ затирается)
 local _inFrame = false
 
 local function blitFeltArea(mw)
@@ -958,18 +953,24 @@ local function blitFeltArea(mw)
         pcall(gpu.bitblt, dst, 1, 1, mw, UI.h, _feltBuf, 1, 1)
         return true
     end
+    -- нет буфера — рисуем узор напрямую
+    paintFeltRegion(1, 1, mw, UI.h)
     return false
 end
 
 local function ensureScreenBuf()
+    -- только если сукно уже в буфере (не забираем единственный слот)
+    if not _feltBuf then ensureFeltCache() end
     if _screenBuf then return true end
     if not (gpu.allocateBuffer and gpu.bitblt) then return false end
     local ok, id = pcall(gpu.allocateBuffer, UI.w, UI.h)
-    if ok and id then _screenBuf = id; return true end
+    if ok and id then
+        _screenBuf = id
+        return true
+    end
     return false
 end
 
--- Двойная буферизация: весь кадр в буфер → один bitblt на экран
 local function present()
     if _inFrame and _screenBuf then
         pcall(gpu.setActiveBuffer, 0)
@@ -980,9 +981,12 @@ local function present()
 end
 
 local function beginFrame()
-    if ensureScreenBuf() and _screenBuf and pcall(gpu.setActiveBuffer, _screenBuf) then
-        _inFrame = true
-        return true
+    -- double-buffer только при наличии ВТОРОГО буфера
+    if _feltBuf and ensureScreenBuf() and _screenBuf then
+        if pcall(gpu.setActiveBuffer, _screenBuf) then
+            _inFrame = true
+            return true
+        end
     end
     _inFrame = false
     pcall(gpu.setActiveBuffer, 0)
@@ -1023,9 +1027,7 @@ local function drawScreen()
     beginFrame()
 
     -- сукно только на игровой зоне; место сайдбара зальём в drawSidebar
-    if not blitFeltArea(mw) then
-        fill(1, 1, mw, UI.h, FELT_BASE)
-    end
+    blitFeltArea(mw)
     -- фон сайдбара
     local sx = mw + 1
     fill(sx, 1, UI.w - mw, UI.h, config.colors.panel)
@@ -2012,7 +2014,7 @@ function UI.flyCard(who, card, faceDown, onDone)
     local hand = (who == "player") and Game.player.hand or Game.dealer.hand
     local idx = #hand + 1
     local tx, ty = handSlotPos(mw, who, idx)
-    local steps = 8
+    local steps = (_screenBuf or ensureScreenBuf()) and 8 or 5
     local step = 0
 
     ensureFeltCache()
@@ -2035,7 +2037,7 @@ function UI.flyCard(who, card, faceDown, onDone)
         beginFrame()
         -- только игровая зона — правый столбец не трогаем в буфере... 
         -- но screenBuf содержит всё: сначала копируем сукно на mw, сайдбар рисуем
-        if not blitFeltArea(mw) then fill(1, 1, mw, UI.h, FELT_BASE) end
+        blitFeltArea(mw)
         local sx = mw + 1
         fill(sx, 1, UI.w - mw, UI.h, config.colors.panel)
         drawTableRail(mw)
@@ -2252,9 +2254,12 @@ local function boot()
     _feltBuf = nil
     _screenBuf = nil
     _welcomeReady = false
+    _inFrame = false
 
     pcall(gpu.setBackground, FELT_BASE or 0x0D6B3F)
     pcall(gpu.fill, 1, 1, UI.w, UI.h, " ")
+    -- сразу создаём снимок сукна (приоритет над screenBuf)
+    pcall(ensureFeltCache)
 
         ensureDir(config.paths.data)
     Players.load()
