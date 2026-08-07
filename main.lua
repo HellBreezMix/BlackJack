@@ -893,18 +893,8 @@ local _tableMw = 0
 local _welcomeReady = false
 
 function paintFeltToActive(w, h)
+    -- сплошное сукно без мелкого узора (узор = крупные масти по углам)
     fill(1, 1, w, h, FELT_BASE)
-    gpu.setBackground(FELT_BASE)
-    gpu.setForeground(FELT_PAT)
-    local suits = { "♠", "♥", "♦", "♣" }
-    local si = 1
-    for row = 2, h - 1, 2 do
-        local shift = (math.floor((row - 2) / 2) % 2) * 2
-        for col = 2 + shift, w - 1, 4 do
-            gpu.set(col, row, suits[si])
-            si = si % 4 + 1
-        end
-    end
 end
 
 function paintRailToActive(mw)
@@ -917,6 +907,34 @@ function paintRailToActive(mw)
     fill(2, UI.h - 1, mw - 2, 1, TABLE_RAIL_DARK)
     fill(2, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
     fill(mw - 1, 3, 1, UI.h - 3, TABLE_RAIL_DARK)
+end
+
+-- Крупные масти в углах (куда карты не долетают)
+function drawCornerSuits(mw)
+    local dim = 0x0A5A35
+    gpu.setBackground(FELT_BASE)
+    gpu.setForeground(dim)
+    local function stamp(x, y, suit)
+        -- блок 3x3 из масти = «огромная» масть
+        for dy = 0, 2 do
+            for dx = 0, 2 do
+                local ch = suit
+                if dy == 1 and dx == 1 then ch = suit end
+                gpu.set(x + dx, y + dy, ch)
+            end
+        end
+    end
+    -- левый верх
+    stamp(3, 3, "♠")
+    stamp(7, 4, "♥")
+    -- левый низ
+    stamp(3, UI.h - 6, "♦")
+    stamp(7, UI.h - 5, "♣")
+    -- правый низ (колода справа сверху — не трогаем)
+    if mw > 30 then
+        stamp(mw - 10, UI.h - 6, "♠")
+        stamp(mw - 6, UI.h - 5, "♥")
+    end
 end
 
 -- Один раз: сукно + дерево → картинка в буфере
@@ -934,6 +952,7 @@ function ensureTableCache(mw)
     if not pcall(gpu.setActiveBuffer, _tableBuf) then return false end
     paintFeltToActive(UI.w, UI.h)
     paintRailToActive(mw)
+    drawCornerSuits(mw)
     pcall(gpu.setActiveBuffer, 0)
     _tableReady = true
     _tableMw = mw
@@ -951,6 +970,7 @@ function blitTable(mw)
     -- fallback
     paintFeltToActive(mw, UI.h)
     paintRailToActive(mw)
+    drawCornerSuits(mw)
     return false
 end
 
@@ -1454,11 +1474,8 @@ function UI.drawMainArea()
             return math.max(3, math.floor((mw - handWidth(n)) / 2) - 6)
         end
 
-        local ly = UI.h - 6
-        text(3, ly,     "Карта      Очки", config.colors.textBlue, config.colors.background)
-        text(3, ly + 1, "2-9        номинал", config.colors.textDark, config.colors.background)
-        text(3, ly + 2, "10/J/Q/K   10", config.colors.textDark, config.colors.background)
-        text(3, ly + 3, "Туз (A)    1 или 11", config.colors.textDark, config.colors.background)
+        -- углы уже в картинке стола; если нет буфера — дорисуем
+        if not _tableBuf then drawCornerSuits(mw) end
 
         -- ДИЛЕР: карты + крупный счёт справа
         local dCount = math.max(1, #Game.dealer.hand)
@@ -1507,6 +1524,12 @@ function UI.drawMainArea()
                 if Game.state ~= "playing" or UI.anim then return end
                 UI.startDealerAnim()
             end)
+            -- таблица очков справа от кнопок, на их уровне
+            local lx = cx + 16
+            text(lx, btnY,     "Карта     Очки", config.colors.textBlue, FELT_BASE)
+            text(lx, btnY + 1, "2-9       номинал", config.colors.textDark, FELT_BASE)
+            text(lx, btnY + 2, "10/J/Q/K  10", config.colors.textDark, FELT_BASE)
+            text(lx, btnY + 3, "Туз (A)   1 или 11", config.colors.textDark, FELT_BASE)
         elseif UI.screen == "playing" and Game.state == "dealing" then
             centerText(btnY, "Раздача...", config.colors.textGold, config.colors.background, mw)
         elseif UI.screen == "playing" and Game.state == "dealer_turn" then
